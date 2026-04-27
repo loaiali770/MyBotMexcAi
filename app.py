@@ -18,6 +18,7 @@ from collections import deque
 import warnings
 warnings.filterwarnings("ignore")
 
+# ── Scikit-learn ────────────────────────────────────────────
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -52,6 +53,7 @@ st.markdown("""
     --text-dim:   #5a7a99;
 }
 
+/* ── Base ── */
 html, body, [data-testid="stAppViewContainer"] {
     background: var(--bg-deep) !important;
     color: var(--text) !important;
@@ -64,6 +66,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 .block-container { padding: 1rem 1.5rem !important; }
 
+/* ── Metric Cards ── */
 .metric-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -93,6 +96,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 .metric-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
 
+/* ── Section Headers ── */
 .section-header {
     font-family: 'Rajdhani', sans-serif;
     font-size: 13px; font-weight: 600;
@@ -101,6 +105,14 @@ html, body, [data-testid="stAppViewContainer"] {
     padding-bottom: 8px; margin: 20px 0 12px;
 }
 
+/* ── Tables ── */
+.stDataFrame, [data-testid="stDataFrame"] {
+    background: var(--bg-panel) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+}
+
+/* ── Buttons ── */
 .stButton > button {
     font-family: 'Rajdhani', sans-serif !important;
     font-weight: 600 !important; letter-spacing: 2px !important;
@@ -127,6 +139,7 @@ html, body, [data-testid="stAppViewContainer"] {
     background: var(--red) !important; color: var(--bg-deep) !important;
 }
 
+/* ── Inputs ── */
 .stNumberInput input, .stTextInput input {
     background: var(--bg-panel) !important;
     border: 1px solid var(--border) !important;
@@ -135,6 +148,7 @@ html, body, [data-testid="stAppViewContainer"] {
     border-radius: 6px !important;
 }
 
+/* ── Status Log ── */
 .log-box {
     background: var(--bg-panel);
     border: 1px solid var(--border);
@@ -150,6 +164,14 @@ html, body, [data-testid="stAppViewContainer"] {
 .log-info { color: var(--accent); }
 .log-warn { color: var(--yellow); }
 
+/* ── Signal bars ── */
+.sig-bar-wrap { display: flex; align-items: center; gap: 8px; }
+.sig-bar {
+    height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+}
+
+/* ── Pulse dot ── */
 .pulse {
     display: inline-block;
     width: 8px; height: 8px; border-radius: 50%;
@@ -163,6 +185,12 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 .pulse.stopped { background: var(--red); animation: none; }
 
+/* ── Win/Loss badges ── */
+.badge-win  { color: var(--green); font-weight: 700; }
+.badge-loss { color: var(--red);   font-weight: 700; }
+.badge-open { color: var(--yellow); font-weight: 700; }
+
+/* ── Sidebar labels ── */
 .sidebar-title {
     font-family: 'Rajdhani', sans-serif;
     font-size: 18px; font-weight: 700;
@@ -180,17 +208,17 @@ def init_state():
         "running": False,
         "budget": 100.0,
         "balance": 100.0,
-        "trades": [],
-        "scan_list": [],
-        "open_trades": {},
+        "trades": [],          # list of trade dicts
+        "scan_list": [],       # [{symbol, signal, mfi, volume_ratio, status}]
+        "open_trades": {},     # symbol → trade dict
         "logs": deque(maxlen=60),
         "ai_model": None,
         "ai_scaler": None,
         "ai_trained": False,
-        "ai_history": [],
+        "ai_history": [],      # [(features, label)]
         "thread": None,
         "stop_event": threading.Event(),
-        "stats": {"win": 0, "loss": 0, "pnl_today": 0.0, "pnl_hour": 0.0},
+        "stats": {"win":0,"loss":0,"pnl_today":0.0,"pnl_hour":0.0},
         "last_update": None,
     }
     for k, v in defaults.items():
@@ -202,20 +230,19 @@ init_state()
 # ════════════════════════════════════════════════════════════
 #  CONSTANTS
 # ════════════════════════════════════════════════════════════
-MAX_OPEN        = 2
-TAKE_PROFIT_PCT = 0.015
-INITIAL_SL_PCT  = 0.012
-TRAILING_DIST   = 0.008
-MFI_BUY_THRESH  = 55
-VOL_MULTIPLIER  = 2.0
-SCAN_INTERVAL   = 8
-MAX_PRICE       = 0.001
+MAX_OPEN = 2
+TAKE_PROFIT_PCT = 0.015   # 1.5 %
+INITIAL_SL_PCT  = 0.012   # 1.2 % initial stop
+TRAILING_DIST   = 0.008   # 0.8 % trailing distance
+MFI_BUY_THRESH  = 55      # MFI > 55 → money flowing in
+VOL_MULTIPLIER  = 2.0     # volume must be 2× average
+SCAN_INTERVAL   = 8       # seconds between scan cycles
+MAX_PRICE       = 0.001   # only coins ≤ $0.001
 
 WATCHLIST_BASE = [
-    "PEPE/USDT", "SHIB/USDT", "FLOKI/USDT", "BONK/USDT",
-    "WIF/USDT",  "LUNC/USDT", "XEC/USDT",   "HOT/USDT",
-    "BTT/USDT",  "WIN/USDT",  "TRX/USDT",   "DOGE/USDT",
-    "VOLT/USDT", "SAMO/USDT", "BABYDOGE/USDT",
+    "PEPE/USDT","SHIB/USDT","FLOKI/USDT","BABYDOGE/USDT","BONK/USDT",
+    "WIF/USDT","LUNC/USDT","XEC/USDT","HOT/USDT","BTT/USDT",
+    "WIN/USDT","TRX/USDT","DOGE/USDT","SAMO/USDT","VOLT/USDT",
 ]
 
 # ════════════════════════════════════════════════════════════
@@ -223,7 +250,8 @@ WATCHLIST_BASE = [
 # ════════════════════════════════════════════════════════════
 @st.cache_resource
 def get_exchange():
-    return ccxt.mexc({"enableRateLimit": True})
+    ex = ccxt.mexc({"enableRateLimit": True})
+    return ex
 
 exchange = get_exchange()
 
@@ -235,59 +263,65 @@ def compute_mfi(highs, lows, closes, volumes, period=14):
     raw_mf = tps * np.array(volumes)
     pos, neg = np.zeros(len(tps)), np.zeros(len(tps))
     for i in range(1, len(tps)):
-        if tps[i] > tps[i - 1]:
+        if tps[i] > tps[i-1]:
             pos[i] = raw_mf[i]
         else:
             neg[i] = raw_mf[i]
-    mfi_vals = []
+    mfi = []
     for i in range(period, len(tps)):
-        p = pos[i - period:i].sum()
-        n = neg[i - period:i].sum()
-        mfi_vals.append(100.0 if n == 0 else 100 - 100 / (1 + p / n))
-    return mfi_vals[-1] if mfi_vals else 50.0
+        p = pos[i-period:i].sum()
+        n = neg[i-period:i].sum()
+        if n == 0:
+            mfi.append(100.0)
+        else:
+            mfi.append(100 - 100/(1 + p/n))
+    return mfi[-1] if mfi else 50.0
 
 def compute_momentum(closes, period=5):
-    if len(closes) < period + 1:
+    if len(closes) < period+1:
         return 0.0
-    return (closes[-1] - closes[-period - 1]) / closes[-period - 1] * 100
+    return (closes[-1] - closes[-period-1]) / closes[-period-1] * 100
 
 def compute_atr(highs, lows, closes, period=14):
     trs = []
     for i in range(1, len(closes)):
-        tr = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i]  - closes[i - 1]),
-        )
+        tr = max(highs[i]-lows[i],
+                 abs(highs[i]-closes[i-1]),
+                 abs(lows[i]-closes[i-1]))
         trs.append(tr)
-    return np.mean(trs[-period:]) if trs else closes[-1] * 0.01
+    return np.mean(trs[-period:]) if trs else closes[-1]*0.01
 
 def compute_volume_ratio(volumes, lookback=20):
-    if len(volumes) < lookback + 1:
+    if len(volumes) < lookback+1:
         return 1.0
-    avg = np.mean(volumes[-lookback - 1:-1])
-    return 1.0 if avg == 0 else volumes[-1] / avg
+    avg = np.mean(volumes[-lookback-1:-1])
+    if avg == 0:
+        return 1.0
+    return volumes[-1] / avg
 
 # ════════════════════════════════════════════════════════════
-#  AI MODEL
+#  AI MODEL (Gradient Boosting — Online-style incremental)
 # ════════════════════════════════════════════════════════════
 def get_features(mfi, vol_ratio, momentum, atr_pct):
     return [mfi, vol_ratio, momentum, atr_pct]
 
 def ai_predict(features):
-    m  = st.session_state.ai_model
+    """Returns probability of a winning trade (0-1)."""
+    m = st.session_state.ai_model
     sc = st.session_state.ai_scaler
     if m is None or not st.session_state.ai_trained:
+        # No model yet — use heuristic score
         mfi, vol_ratio, momentum, atr_pct = features
         score = 0.0
-        if mfi > MFI_BUY_THRESH:       score += 0.35
-        if vol_ratio > VOL_MULTIPLIER:  score += 0.35
-        if momentum > 0.3:              score += 0.20
+        if mfi > MFI_BUY_THRESH:      score += 0.35
+        if vol_ratio > VOL_MULTIPLIER: score += 0.35
+        if momentum > 0.3:             score += 0.20
         if atr_pct < 0.05:             score += 0.10
         return min(score, 0.99)
     try:
         X = sc.transform([features])
-        return float(m.predict_proba(X)[0][1])
+        prob = m.predict_proba(X)[0][1]
+        return float(prob)
     except Exception:
         return 0.5
 
@@ -298,15 +332,16 @@ def ai_retrain():
     X = [h[0] for h in hist]
     y = [h[1] for h in hist]
     sc = StandardScaler()
-    Xs = sc.fit_transform(X)
+    X_scaled = sc.fit_transform(X)
     model = GradientBoostingClassifier(
         n_estimators=80, max_depth=3,
-        learning_rate=0.1, subsample=0.8, random_state=42,
+        learning_rate=0.1, subsample=0.8,
+        random_state=42
     )
     try:
-        model.fit(Xs, y)
-        st.session_state.ai_model   = model
-        st.session_state.ai_scaler  = sc
+        model.fit(X_scaled, y)
+        st.session_state.ai_model = model
+        st.session_state.ai_scaler = sc
         st.session_state.ai_trained = True
     except Exception:
         pass
@@ -331,7 +366,8 @@ def fetch_ohlcv(symbol, timeframe="1m", limit=60):
         data = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         if not data or len(data) < 20:
             return None
-        return pd.DataFrame(data, columns=["ts","open","high","low","close","volume"])
+        df = pd.DataFrame(data, columns=["ts","open","high","low","close","volume"])
+        return df
     except Exception:
         return None
 
@@ -342,72 +378,70 @@ def fetch_ticker(symbol):
         return None
 
 # ════════════════════════════════════════════════════════════
-#  TRADE LOGIC
+#  CORE BOT LOGIC
 # ════════════════════════════════════════════════════════════
 def open_trade(symbol, price, atr, features):
-    slots_left = MAX_OPEN - len(st.session_state.open_trades)
-    if slots_left <= 0:
-        return
-    alloc = st.session_state.balance / slots_left
-    qty   = alloc / price
-    sl    = price * (1 - INITIAL_SL_PCT)
-    tp    = price * (1 + TAKE_PROFIT_PCT)
+    sl = price - INITIAL_SL_PCT * price
+    tp = price + TAKE_PROFIT_PCT * price
+    alloc = st.session_state.balance / (MAX_OPEN - len(st.session_state.open_trades))
+    qty = alloc / price
     trade = {
-        "symbol":      symbol,
+        "symbol": symbol,
         "entry_price": price,
-        "qty":         qty,
-        "sl":          sl,
-        "tp":          tp,
-        "trail_high":  price,
-        "trail_sl":    sl,
-        "entry_time":  datetime.now().isoformat(timespec="seconds"),
-        "exit_price":  None,
-        "exit_time":   None,
-        "pnl_pct":     None,
-        "status":      "OPEN",
-        "features":    features,
-        "atr":         atr,
+        "qty": qty,
+        "sl": sl,
+        "tp": tp,
+        "trail_high": price,
+        "trail_sl": sl,
+        "entry_time": datetime.now().isoformat(timespec="seconds"),
+        "exit_price": None,
+        "exit_time": None,
+        "pnl_pct": None,
+        "status": "OPEN",
+        "features": features,
+        "atr": atr,
     }
     st.session_state.open_trades[symbol] = trade
     st.session_state.balance -= alloc
-    add_log(f"BUY  {symbol} @ ${price:.8f}  SL=${sl:.8f}  TP=${tp:.8f}", "buy")
+    add_log(f"BUY  {symbol}  @ ${price:.8f}  SL=${sl:.8f}  TP=${tp:.8f}", "buy")
 
 def close_trade(symbol, price, reason=""):
     trade = st.session_state.open_trades.pop(symbol, None)
     if not trade:
         return
-    pnl_pct  = (price - trade["entry_price"]) / trade["entry_price"] * 100
+    pnl_pct = (price - trade["entry_price"]) / trade["entry_price"] * 100
     pnl_usdt = (price - trade["entry_price"]) * trade["qty"]
     st.session_state.balance += trade["qty"] * price
-    trade.update({
-        "exit_price": price,
-        "exit_time":  datetime.now().isoformat(timespec="seconds"),
-        "pnl_pct":    round(pnl_pct, 3),
-        "status":     "WIN" if pnl_pct > 0 else "LOSS",
-    })
+    trade["exit_price"] = price
+    trade["exit_time"] = datetime.now().isoformat(timespec="seconds")
+    trade["pnl_pct"] = round(pnl_pct, 3)
+    trade["status"] = "WIN" if pnl_pct > 0 else "LOSS"
     st.session_state.trades.append(trade)
-    st.session_state.stats["pnl_today"] = round(
-        st.session_state.stats["pnl_today"] + pnl_usdt, 4)
-    st.session_state.stats["pnl_hour"]  = round(
-        st.session_state.stats["pnl_hour"]  + pnl_usdt, 4)
+    # stats
+    st.session_state.stats["pnl_today"]  = round(st.session_state.stats["pnl_today"] + pnl_usdt, 4)
+    st.session_state.stats["pnl_hour"]   = round(st.session_state.stats["pnl_hour"]  + pnl_usdt, 4)
     if pnl_pct > 0:
         st.session_state.stats["win"] += 1
         add_log(f"SELL {symbol} @ ${price:.8f}  PnL={pnl_pct:+.2f}%  [{reason}]", "buy")
     else:
         st.session_state.stats["loss"] += 1
         add_log(f"SELL {symbol} @ ${price:.8f}  PnL={pnl_pct:+.2f}%  [{reason}]", "sell")
+    # teach AI
     ai_record(trade["features"], pnl_pct > 0)
 
 def manage_open_trades():
+    """Update trailing SL and check TP/SL hits."""
     for sym in list(st.session_state.open_trades.keys()):
-        t      = st.session_state.open_trades[sym]
+        t = st.session_state.open_trades[sym]
         ticker = fetch_ticker(sym)
         if not ticker:
             continue
         price = ticker["last"]
+        # Update trailing stop
         if price > t["trail_high"]:
             t["trail_high"] = price
             t["trail_sl"]   = price * (1 - TRAILING_DIST)
+        # Check exits
         if price >= t["tp"]:
             close_trade(sym, price, "TP")
         elif price <= t["trail_sl"]:
@@ -416,6 +450,7 @@ def manage_open_trades():
             close_trade(sym, price, "SL")
 
 def scan_symbols():
+    """Scan watchlist for entry signals."""
     results = []
     for sym in WATCHLIST_BASE:
         try:
@@ -432,28 +467,26 @@ def scan_symbols():
             lows    = df["low"].tolist()
             closes  = df["close"].tolist()
             volumes = df["volume"].tolist()
-
-            mfi       = compute_mfi(highs, lows, closes, volumes)
-            vol_ratio = compute_volume_ratio(volumes)
-            momentum  = compute_momentum(closes)
-            atr       = compute_atr(highs, lows, closes)
-            atr_pct   = atr / closes[-1] if closes[-1] > 0 else 0.01
-            features  = get_features(mfi, vol_ratio, momentum, atr_pct)
-            ai_prob   = ai_predict(features)
-
+            mfi        = compute_mfi(highs, lows, closes, volumes)
+            vol_ratio  = compute_volume_ratio(volumes)
+            momentum   = compute_momentum(closes)
+            atr        = compute_atr(highs, lows, closes)
+            atr_pct    = atr / closes[-1] if closes[-1] > 0 else 0.01
+            features   = get_features(mfi, vol_ratio, momentum, atr_pct)
+            ai_prob    = ai_predict(features)
             results.append({
-                "symbol":    sym,
-                "price":     price,
-                "mfi":       round(mfi, 1),
-                "vol_ratio": round(vol_ratio, 2),
-                "momentum":  round(momentum, 3),
-                "ai_prob":   round(ai_prob * 100, 1),
-                "signal":    "⚡ STRONG" if ai_prob > 0.65 else ("◎ WATCH" if ai_prob > 0.45 else "○ WEAK"),
-                "features":  features,
-                "atr":       atr,
+                "symbol":     sym,
+                "price":      price,
+                "mfi":        round(mfi, 1),
+                "vol_ratio":  round(vol_ratio, 2),
+                "momentum":   round(momentum, 3),
+                "ai_prob":    round(ai_prob * 100, 1),
+                "signal":     "⚡ STRONG" if ai_prob > 0.65 else ("◎ WATCH" if ai_prob > 0.45 else "○ WEAK"),
+                "features":   features,
+                "atr":        atr,
+                "current_price": price,
             })
-
-            # ── Entry decision ──
+            # Entry decision
             if (sym not in st.session_state.open_trades
                     and len(st.session_state.open_trades) < MAX_OPEN
                     and mfi > MFI_BUY_THRESH
@@ -461,12 +494,10 @@ def scan_symbols():
                     and ai_prob > 0.60
                     and st.session_state.balance > 1.0):
                 open_trade(sym, price, atr, features)
-
         except Exception:
             continue
-
     results.sort(key=lambda x: x["ai_prob"], reverse=True)
-    st.session_state.scan_list  = results
+    st.session_state.scan_list = results
     st.session_state.last_update = datetime.now().strftime("%H:%M:%S")
 
 # ════════════════════════════════════════════════════════════
@@ -490,18 +521,14 @@ def start_bot():
     if st.session_state.running:
         return
     st.session_state.stop_event.clear()
-    st.session_state.balance     = st.session_state.budget
-    st.session_state.trades      = []
+    st.session_state.balance = st.session_state.budget
+    st.session_state.trades = []
     st.session_state.open_trades = {}
-    st.session_state.stats       = {"win": 0, "loss": 0, "pnl_today": 0.0, "pnl_hour": 0.0}
-    st.session_state.logs        = deque(maxlen=60)
-    t = threading.Thread(
-        target=bot_loop,
-        args=(st.session_state.stop_event,),
-        daemon=True,
-    )
+    st.session_state.stats = {"win":0,"loss":0,"pnl_today":0.0,"pnl_hour":0.0}
+    st.session_state.logs = deque(maxlen=60)
+    t = threading.Thread(target=bot_loop, args=(st.session_state.stop_event,), daemon=True)
     t.start()
-    st.session_state.thread  = t
+    st.session_state.thread = t
     st.session_state.running = True
 
 def stop_bot():
@@ -516,39 +543,38 @@ def stop_bot():
 with st.sidebar:
     st.markdown('<div class="sidebar-title">⚡ SCALP BOT</div>', unsafe_allow_html=True)
     st.markdown("---")
-
-    running  = st.session_state.running
-    dot_cls  = "pulse" if running else "pulse stopped"
-    stat_txt = "RUNNING" if running else "STOPPED"
+    running = st.session_state.running
+    dot_cls = "pulse" if running else "pulse stopped"
+    status_txt = "RUNNING" if running else "STOPPED"
     st.markdown(
         f'<div style="text-align:center;margin-bottom:16px;">'
         f'<span class="{dot_cls}"></span>'
-        f'<span style="font-family:Rajdhani,sans-serif;font-size:14px;letter-spacing:2px;">{stat_txt}</span>'
+        f'<span style="font-family:Rajdhani,sans-serif;font-size:14px;letter-spacing:2px;">{status_txt}</span>'
         f'</div>',
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
-
-    budget = st.number_input(
-        "Budget (USDT)", min_value=10.0, max_value=10000.0,
-        value=float(st.session_state.budget), step=10.0,
-    )
+    budget = st.number_input("Budget (USDT)", min_value=10.0, max_value=10000.0,
+                              value=float(st.session_state.budget), step=10.0, key="budget_input")
     st.session_state.budget = budget
 
     col1, col2 = st.columns(2)
     with col1:
         st.markdown('<div class="start-btn">', unsafe_allow_html=True)
         if st.button("▶ START", use_container_width=True):
-            start_bot(); st.rerun()
+            start_bot()
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
         st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
         if st.button("■ STOP", use_container_width=True):
-            stop_bot(); st.rerun()
+            stop_bot()
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
+    st.markdown('<div class="metric-label">Strategy</div>', unsafe_allow_html=True)
     st.markdown("""
-    <div style="font-size:11px;color:#5a7a99;line-height:1.9;">
+    <div style="font-size:11px;color:#5a7a99;line-height:1.8;">
     📊 Volume Breakout + MFI<br>
     🤖 Gradient Boosting AI<br>
     🎯 TP: 1.5% | Init SL: 1.2%<br>
@@ -559,15 +585,15 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("---")
-    bal     = st.session_state.balance
-    ini     = st.session_state.budget
-    bal_pct = (bal - ini) / ini * 100 if ini > 0 else 0
-    col     = "#00ff9d" if bal >= ini else "#ff3860"
+    bal = st.session_state.balance
+    init = st.session_state.budget
+    bal_pct = (bal - init) / init * 100 if init > 0 else 0
+    bal_color = "#00ff9d" if bal >= init else "#ff3860"
     st.markdown(
         f'<div class="metric-label">Current Balance</div>'
-        f'<div style="font-size:22px;font-weight:700;color:{col};">${bal:.2f}</div>'
-        f'<div style="font-size:11px;color:{col};">{bal_pct:+.2f}% from start</div>',
-        unsafe_allow_html=True,
+        f'<div style="font-size:22px;font-weight:700;color:{bal_color};">${bal:.2f}</div>'
+        f'<div style="font-size:11px;color:{bal_color};">{bal_pct:+.2f}% from start</div>',
+        unsafe_allow_html=True
     )
     if st.button("🔄 Refresh", use_container_width=True):
         st.rerun()
@@ -580,16 +606,17 @@ st.markdown(
     'color:#00d4ff;letter-spacing:4px;margin:0 0 4px;">MEXC SCALPING CONTROL CENTER</h1>'
     '<div style="font-size:11px;color:#4a6280;letter-spacing:2px;margin-bottom:20px;">'
     '⚡ PAPER TRADING MODE — LIVE MEXC PRICES</div>',
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
-# ── TOP METRICS ──
+# ── TOP METRICS ────────────────────────────────────────────
 stats = st.session_state.stats
 total = stats["win"] + stats["loss"]
-wr    = stats["win"] / total * 100 if total > 0 else 0.0
+wr = stats["win"] / total * 100 if total > 0 else 0.0
 pnl_d = stats["pnl_today"]
 pnl_h = stats["pnl_hour"]
 
+c1, c2, c3, c4, c5 = st.columns(5)
 def metric_card(col, label, value, sub="", css_class=""):
     with col:
         st.markdown(
@@ -598,60 +625,65 @@ def metric_card(col, label, value, sub="", css_class=""):
             f'<div class="metric-value">{value}</div>'
             f'<div class="metric-sub">{sub}</div>'
             f'</div>',
-            unsafe_allow_html=True,
+            unsafe_allow_html=True
         )
 
-c1, c2, c3, c4, c5 = st.columns(5)
 metric_card(c1, "PnL Today",
-            f'{"+" if pnl_d >= 0 else ""}{pnl_d:.2f} USDT',
-            "Paper trading", "green" if pnl_d >= 0 else "red")
+            f'{"+" if pnl_d>=0 else ""}{pnl_d:.2f} USDT',
+            "Paper trading",
+            "green" if pnl_d >= 0 else "red")
 metric_card(c2, "PnL This Hour",
-            f'{"+" if pnl_h >= 0 else ""}{pnl_h:.2f} USDT',
-            "Rolling", "green" if pnl_h >= 0 else "red")
+            f'{"+" if pnl_h>=0 else ""}{pnl_h:.2f} USDT',
+            "Rolling",
+            "green" if pnl_h >= 0 else "red")
 metric_card(c3, "Win / Loss",
             f'{stats["win"]} / {stats["loss"]}',
-            f'{total} total trades', "yellow")
+            f'{total} total trades',
+            "yellow")
 metric_card(c4, "Win Rate",
             f'{wr:.1f}%',
             "AI learning..." if not st.session_state.ai_trained else "AI active",
             "green" if wr >= 50 else "red")
 metric_card(c5, "Open Trades",
             f'{len(st.session_state.open_trades)} / {MAX_OPEN}',
-            "max 2 simultaneous", "")
+            "max 2 simultaneous",
+            "")
 
-# ── OPEN POSITIONS ──
+# ── OPEN TRADES ────────────────────────────────────────────
 st.markdown('<div class="section-header">🔴 LIVE OPEN POSITIONS</div>', unsafe_allow_html=True)
 if st.session_state.open_trades:
     rows = []
     for sym, t in st.session_state.open_trades.items():
         ticker = fetch_ticker(sym)
-        cur    = ticker["last"] if ticker else t["entry_price"]
-        pnl_p  = (cur - t["entry_price"]) / t["entry_price"] * 100
+        cur = ticker["last"] if ticker else t["entry_price"]
+        pnl_pct = (cur - t["entry_price"]) / t["entry_price"] * 100
         rows.append({
-            "Symbol":     sym,
-            "Entry $":    f'{t["entry_price"]:.8f}',
-            "Current $":  f'{cur:.8f}',
-            "TP $":       f'{t["tp"]:.8f}',
+            "Symbol":   sym,
+            "Entry $":  f'{t["entry_price"]:.8f}',
+            "Current $": f'{cur:.8f}',
+            "TP $":     f'{t["tp"]:.8f}',
             "Trail SL $": f'{t["trail_sl"]:.8f}',
-            "PnL %":      f'{pnl_p:+.3f}%',
-            "Status":     "🟢 OPEN",
+            "PnL %":    f'{pnl_pct:+.3f}%',
+            "Status":   "🟢 OPEN",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 else:
     st.markdown(
         '<div style="text-align:center;padding:20px;color:#4a6280;font-size:13px;">'
-        '⊘ No open positions — bot scanning for entries...</div>',
-        unsafe_allow_html=True,
+        '⊘ No open positions — bot is scanning for entries...</div>',
+        unsafe_allow_html=True
     )
 
-# ── SCANNING LIST ──
+# ── SCANNING LIST ──────────────────────────────────────────
 st.markdown('<div class="section-header">🔍 AI SCANNING LIST</div>', unsafe_allow_html=True)
-if st.session_state.scan_list:
+scan = st.session_state.scan_list
+if scan:
     scan_rows = []
-    for s in st.session_state.scan_list:
+    for s in scan:
+        bar_w = int(s["ai_prob"])
         scan_rows.append({
             "Symbol":    s["symbol"],
-            "Price $":   f'{s["price"]:.8f}',
+            "Price $":   f'{s["price"]:.8f}' if s.get("price") else "—",
             "MFI":       s["mfi"],
             "Vol Ratio": f'×{s["vol_ratio"]}',
             "Momentum":  f'{s["momentum"]:+.3f}%',
@@ -659,229 +691,102 @@ if st.session_state.scan_list:
             "Signal":    s["signal"],
         })
     st.dataframe(pd.DataFrame(scan_rows), use_container_width=True, hide_index=True)
+    ts = st.session_state.last_update
     st.markdown(
         f'<div style="font-size:10px;color:#4a6280;text-align:right;margin-top:4px;">'
-        f'Last scan: {st.session_state.last_update}</div>',
-        unsafe_allow_html=True,
+        f'Last scan: {ts}</div>',
+        unsafe_allow_html=True
     )
 else:
     st.markdown(
         '<div style="text-align:center;padding:20px;color:#4a6280;font-size:13px;">'
         '⊘ Start bot to begin scanning...</div>',
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-# ── TRADE HISTORY ──
+# ── TRADE HISTORY ──────────────────────────────────────────
 st.markdown('<div class="section-header">📋 TRADE HISTORY</div>', unsafe_allow_html=True)
-if st.session_state.trades:
+trades = st.session_state.trades
+if trades:
     hist_rows = []
-    for t in reversed(st.session_state.trades[-50:]):
+    for t in reversed(trades[-50:]):
         pnl = t.get("pnl_pct", 0) or 0
+        badge = "🟢 WIN" if t["status"] == "WIN" else "🔴 LOSS"
         hist_rows.append({
-            "Symbol":     t["symbol"],
-            "Entry Time": t["entry_time"],
-            "Entry $":    f'{t["entry_price"]:.8f}',
-            "Exit $":     f'{t["exit_price"]:.8f}' if t["exit_price"] else "—",
-            "PnL %":      f'{pnl:+.3f}%',
-            "Status":     "🟢 WIN" if t["status"] == "WIN" else "🔴 LOSS",
+            "Symbol":      t["symbol"],
+            "Entry Time":  t["entry_time"],
+            "Entry $":     f'{t["entry_price"]:.8f}',
+            "Exit $":      f'{t["exit_price"]:.8f}' if t["exit_price"] else "—",
+            "PnL %":       f'{pnl:+.3f}%',
+            "Status":      badge,
         })
     st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
 else:
     st.markdown(
         '<div style="text-align:center;padding:20px;color:#4a6280;font-size:13px;">'
         '⊘ No completed trades yet.</div>',
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-# ── STATUS LOGS ──
+# ── STATUS LOGS ────────────────────────────────────────────
 st.markdown('<div class="section-header">📡 STATUS LOGS</div>', unsafe_allow_html=True)
 if st.session_state.logs:
     log_html = '<div class="log-box">'
     for entry in st.session_state.logs:
-        log_html += f'<div class="log-{entry["kind"]}">[{entry["ts"]}] {entry["msg"]}</div>'
+        cls = f'log-{entry["kind"]}'
+        log_html += f'<div class="{cls}">[{entry["ts"]}] {entry["msg"]}</div>'
     log_html += '</div>'
     st.markdown(log_html, unsafe_allow_html=True)
 else:
     st.markdown(
         '<div class="log-box" style="color:#4a6280;text-align:center;">'
         'Waiting for activity...</div>',
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-# ── AI STATUS ──
+# ── AI STATUS ──────────────────────────────────────────────
 st.markdown('<div class="section-header">🤖 AI MODEL STATUS</div>', unsafe_allow_html=True)
-a1, a2, a3 = st.columns(3)
-trained = st.session_state.ai_trained
-with a1:
+ai_col1, ai_col2, ai_col3 = st.columns(3)
+with ai_col1:
+    trained = st.session_state.ai_trained
     st.markdown(
         f'<div class="metric-card {"green" if trained else "yellow"}">'
         f'<div class="metric-label">Model Status</div>'
         f'<div class="metric-value" style="font-size:16px;">{"✓ TRAINED" if trained else "○ LEARNING"}</div>'
         f'<div class="metric-sub">GradientBoosting</div>'
         f'</div>',
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
-with a2:
-    n = len(st.session_state.ai_history)
+with ai_col2:
+    n_hist = len(st.session_state.ai_history)
     st.markdown(
         f'<div class="metric-card">'
         f'<div class="metric-label">Training Samples</div>'
-        f'<div class="metric-value">{n}</div>'
+        f'<div class="metric-value">{n_hist}</div>'
         f'<div class="metric-sub">Need 20 to train</div>'
         f'</div>',
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
-with a3:
+with ai_col3:
     st.markdown(
-        '<div class="metric-card">'
-        '<div class="metric-label">Entry Threshold</div>'
-        '<div class="metric-value">60%</div>'
-        '<div class="metric-sub">AI confidence min</div>'
-        '</div>',
-        unsafe_allow_html=True,
+        f'<div class="metric-card">'
+        f'<div class="metric-label">Entry Threshold</div>'
+        f'<div class="metric-value">60%</div>'
+        f'<div class="metric-sub">AI confidence min</div>'
+        f'</div>',
+        unsafe_allow_html=True
     )
 
-# ── FOOTER ──
+# ── FOOTER ─────────────────────────────────────────────────
 st.markdown("---")
 st.markdown(
     '<div style="text-align:center;font-size:10px;color:#2a4060;letter-spacing:2px;">'
     '⚡ MEXC SCALPING BOT — PAPER TRADING ONLY — NOT FINANCIAL ADVICE ⚡'
     '</div>',
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
-# ── AUTO REFRESH ──
+# Auto-refresh every 10s when bot is running
 if st.session_state.running:
     time.sleep(10)
-    st.rerun()    c.execute("INSERT INTO trades VALUES (?,?,?,?,datetime('now'))",(s,e,x,p))
-    conn().commit()
-
-def get_trades():
-    c = conn().cursor()
-    return c.execute("SELECT * FROM trades ORDER BY time DESC").fetchall()
-
-# ================= MARKET =================
-ex = ccxt.mexc({"enableRateLimit": True})
-
-def get_symbols():
-    t = ex.fetch_tickers()
-    out = []
-    for s,v in t.items():
-        if "/USDT" in s and v.get("last") and v["last"]<=0.001:
-            if v.get("quoteVolume",0)>20000:
-                out.append(s)
-    return out[:12]
-
-def get_df(s):
-    b = ex.fetch_ohlcv(s,'1m',limit=50)
-    df = pd.DataFrame(b,columns=['t','o','h','l','c','v'])
-    df['ema8']=df['c'].ewm(span=8).mean()
-    df['ema21']=df['c'].ewm(span=21).mean()
-    df['rsi']=100-(100/(1+df['c'].pct_change().rolling(14).mean()))
-    df['vol_avg']=df['v'].rolling(10).mean()
-    return df
-
-def score(df):
-    l=df.iloc[-1]; p=df.iloc[-2]
-    s=0
-    if l['ema8']>l['ema21']: s+=25
-    if l['ema8']>l['ema21'] and p['ema8']<=p['ema21']: s+=25
-    if 25<l['rsi']<40: s+=15
-    if l['c']>p['c']: s+=15
-    if l['v']>l['vol_avg']: s+=10
-    if abs(l['c']-p['c'])/p['c']<0.02: s+=10
-    return s
-
-# ================= BOT =================
-def bot():
-    while st.session_state.running:
-        try:
-            amt = get_amount()
-            if not amt:
-                time.sleep(3)
-                continue
-
-            bal = get_balance()
-            pos = get_positions()
-            syms = get_symbols()
-
-            for s in syms:
-                st.session_state.state["checked"] += 1
-                st.session_state.state["current"] = s
-
-                df = get_df(s)
-                sc = score(df)
-                price = df.iloc[-1]['c']
-
-                # ===== SELL =====
-                if s in pos:
-                    entry = pos[s]['entry']
-                    maxp = pos[s]['max']
-
-                    if price > maxp:
-                        update_max(s,price)
-                        continue
-
-                    drop = (maxp-price)/maxp
-
-                    if drop >= TRAILING_STOP:
-                        profit = (price-entry)/entry
-                        bal += amt*(1+profit)
-                        set_balance(bal)
-                        save_trade(s,entry,price,profit)
-                        remove_pos(s)
-
-                        st.session_state.state["sell"] = price
-
-                # ===== BUY =====
-                elif len(pos)==0 and sc>=75 and bal>=amt:
-                    set_balance(bal-amt)
-                    save_pos(s,price)
-
-                    st.session_state.state["buy"] = price
-
-        except Exception as e:
-            print("ERR",e)
-
-        time.sleep(LOOP_INTERVAL)
-
-# ================= UI =================
-st.title("📊 PRO TRADING BOT")
-
-col1,col2 = st.columns(2)
-
-if col1.button("▶ تشغيل"):
-    if not st.session_state.running:
-        st.session_state.running = True
-        threading.Thread(target=bot,daemon=True).start()
-
-if col2.button("⛔ إيقاف"):
-    st.session_state.running = False
-
-st.divider()
-
-st.metric("عدد العملات المفحوصة", st.session_state.state["checked"])
-st.write("العملة الحالية:", st.session_state.state["current"])
-st.write("سعر الشراء:", st.session_state.state["buy"])
-st.write("سعر البيع:", st.session_state.state["sell"])
-
-st.metric("الرصيد", get_balance())
-
-# ===== إعداد المبلغ =====
-amt = st.number_input("مبلغ التداول",value=10.0)
-key = st.text_input("Admin Key")
-
-if st.button("تثبيت المبلغ"):
-    if key != ADMIN_KEY:
-        st.error("مفتاح خاطئ")
-    elif get_amount():
-        st.warning("تم التثبيت مسبقاً")
-    else:
-        set_amount(amt)
-        st.success("تم التثبيت")
-
-# ===== الصفقات =====
-st.subheader("الصفقات")
-
-for t in get_trades():
-    st.write(f"{t[0]} | دخول {t[1]} | خروج {t[2]} | ربح {round(t[3]*100,2)}%")
+    st.rerun()
