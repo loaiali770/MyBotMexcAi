@@ -1,921 +1,7 @@
 """
-══════════════════════════╗
-║   MEXC SCALPING BOT — Paper Trading Mode                ║
-║   Strategy: Volume Breakout + MFI + AI (GradientBoost)  ║
-║   Platform: Streamlit | Data: CCXT | AI: Scikit-learn   ║
-╚══════════════════════════════════════════════════════════╝
-"""
-
-import streamlit as st
-import ccxt
-import pandas as pd
-import numpy as np
-import time
-import threading
-import json
-from datetime import datetime, timedelta
-from collections import deque
-import warnings
-warnings.filterwarnings("ignore")
-
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
-
-# ════════════════════════════════════════════════════════════
-#  PAGE CONFIG
-# ════════════════════════════════════════════════════════════
-st.set_page_config(
-    page_title="MEXC Scalping Bot",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# ════════════════════════════════════════════════════════════
-#  GLOBAL CSS — DARK TERMINAL THEME
-# ════════════════════════════════════════════════════════════
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
-
-:root {
-    --bg-deep:    #080d12;
-    --bg-card:    #0d1520;
-    --bg-panel:   #111c2a;
-    --border:     #1e3050;
-    --accent:     #00d4ff;
-    --green:      #00ff9d;
-    --red:        #ff3860;
-    --yellow:     #ffd600;
-    --muted:      #4a6280;
-    --text:       #c8ddf0;
-    --text-dim:   #5a7a99;
-}
-
-html, body, [data-testid="stAppViewContainer"] {
-    background: var(--bg-deep) !important;
-    color: var(--text) !important;
-    font-family: 'JetBrains Mono', monospace !important;
-}
-[data-testid="stHeader"] { background: transparent !important; }
-[data-testid="stSidebar"] {
-    background: var(--bg-card) !important;
-    border-right: 1px solid var(--border) !important;
-}
-.block-container { padding: 1rem 1.5rem !important; }
-
-.metric-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px 20px;
-    position: relative;
-    overflow: hidden;
-}
-.metric-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 3px; height: 100%;
-    background: var(--accent);
-}
-.metric-card.green::before { background: var(--green); }
-.metric-card.red::before   { background: var(--red); }
-.metric-card.yellow::before { background: var(--yellow); }
-.metric-label {
-    font-size: 10px; letter-spacing: 2px;
-    color: var(--text-dim); text-transform: uppercase;
-    margin-bottom: 6px; font-family: 'Rajdhani', sans-serif;
-}
-.metric-value {
-    font-size: 26px; font-weight: 700;
-    font-family: 'JetBrains Mono', monospace;
-}
-.metric-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
-
-.section-header {
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 13px; font-weight: 600;
-    letter-spacing: 3px; text-transform: uppercase;
-    color: var(--accent); border-bottom: 1px solid var(--border);
-    padding-bottom: 8px; margin: 20px 0 12px;
-}
-
-.stButton > button {
-    font-family: 'Rajdhani', sans-serif !important;
-    font-weight: 600 !important; letter-spacing: 2px !important;
-    font-size: 14px !important; border-radius: 6px !important;
-    border: 1px solid var(--accent) !important;
-    color: var(--accent) !important;
-    background: transparent !important;
-    transition: all .2s !important;
-}
-.stButton > button:hover {
-    background: var(--accent) !important;
-    color: var(--bg-deep) !important;
-}
-.start-btn > button {
-    border-color: var(--green) !important; color: var(--green) !important;
-}
-.start-btn > button:hover {
-    background: var(--green) !important; color: var(--bg-deep) !important;
-}
-.stop-btn > button {
-    border-color: var(--red) !important; color: var(--red) !important;
-}
-.stop-btn > button:hover {
-    background: var(--red) !important; color: var(--bg-deep) !important;
-}
-
-.stNumberInput input, .stTextInput input {
-    background: var(--bg-panel) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    border-radius: 6px !important;
-}
-
-.log-box {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 16px;
-    font-size: 12px;
-    max-height: 200px;
-    overflow-y: auto;
-    font-family: 'JetBrains Mono', monospace;
-}
-.log-buy  { color: var(--green); }
-.log-sell { color: var(--red); }
-.log-info { color: var(--accent); }
-.log-warn { color: var(--yellow); }
-
-.pulse {
-    display: inline-block;
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--green);
-    animation: pulse 1.2s infinite;
-    margin-right: 6px;
-}
-@keyframes pulse {
-    0%,100% { opacity: 1; transform: scale(1); }
-    50%      { opacity: .4; transform: scale(.7); }
-}
-.pulse.stopped { background: var(--red); animation: none; }
-
-.sidebar-title {
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 18px; font-weight: 700;
-    color: var(--accent); letter-spacing: 2px;
-    text-align: center; margin-bottom: 16px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ════════════════════════════════════════════════════════════
-#  SESSION STATE INIT
-# ════════════════════════════════════════════════════════════
-def init_state():
-    defaults = {
-        "running": False,
-        "budget": 100.0,
-        "balance": 100.0,
-        "trades": [],
-        "scan_list": [],
-        "open_trades": {},
-        "logs": deque(maxlen=60),
-        "ai_model": None,
-        "ai_scaler": None,
-        "ai_trained": False,
-        "ai_history": [],
-        "thread": None,
-        "stop_event": threading.Event(),
-        "stats": {"win": 0, "loss": 0, "pnl_today": 0.0, "pnl_hour": 0.0},
-        "last_update": None,
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-init_state()
-
-# ════════════════════════════════════════════════════════════
-#  CONSTANTS
-# ════════════════════════════════════════════════════════════
-MAX_OPEN        = 2
-TAKE_PROFIT_PCT = 0.015
-INITIAL_SL_PCT  = 0.012
-TRAILING_DIST   = 0.008
-MFI_BUY_THRESH  = 55
-VOL_MULTIPLIER  = 2.0
-SCAN_INTERVAL   = 8
-MAX_PRICE       = 0.001
-
-WATCHLIST_BASE = [
-    "PEPE/USDT", "SHIB/USDT", "FLOKI/USDT", "BONK/USDT",
-    "WIF/USDT",  "LUNC/USDT", "XEC/USDT",   "HOT/USDT",
-    "BTT/USDT",  "WIN/USDT",  "TRX/USDT",   "DOGE/USDT",
-    "VOLT/USDT", "SAMO/USDT", "BABYDOGE/USDT",
-]
-
-# ════════════════════════════════════════════════════════════
-#  EXCHANGE
-# ════════════════════════════════════════════════════════════
-@st.cache_resource
-def get_exchange():
-    return ccxt.mexc({"enableRateLimit": True})
-
-exchange = get_exchange()
-
-# ════════════════════════════════════════════════════════════
-#  INDICATORS
-# ════════════════════════════════════════════════════════════
-def compute_mfi(highs, lows, closes, volumes, period=14):
-    tps = (np.array(highs) + np.array(lows) + np.array(closes)) / 3
-    raw_mf = tps * np.array(volumes)
-    pos, neg = np.zeros(len(tps)), np.zeros(len(tps))
-    for i in range(1, len(tps)):
-        if tps[i] > tps[i - 1]:
-            pos[i] = raw_mf[i]
-        else:
-            neg[i] = raw_mf[i]
-    mfi_vals = []
-    for i in range(period, len(tps)):
-        p = pos[i - period:i].sum()
-        n = neg[i - period:i].sum()
-        mfi_vals.append(100.0 if n == 0 else 100 - 100 / (1 + p / n))
-    return mfi_vals[-1] if mfi_vals else 50.0
-
-def compute_momentum(closes, period=5):
-    if len(closes) < period + 1:
-        return 0.0
-    return (closes[-1] - closes[-period - 1]) / closes[-period - 1] * 100
-
-def compute_atr(highs, lows, closes, period=14):
-    trs = []
-    for i in range(1, len(closes)):
-        tr = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i]  - closes[i - 1]),
-        )
-        trs.append(tr)
-    return np.mean(trs[-period:]) if trs else closes[-1] * 0.01
-
-def compute_volume_ratio(volumes, lookback=20):
-    if len(volumes) < lookback + 1:
-        return 1.0
-    avg = np.mean(volumes[-lookback - 1:-1])
-    return 1.0 if avg == 0 else volumes[-1] / avg
-
-# ════════════════════════════════════════════════════════════
-#  AI MODEL
-# ════════════════════════════════════════════════════════════
-def get_features(mfi, vol_ratio, momentum, atr_pct):
-    return [mfi, vol_ratio, momentum, atr_pct]
-
-def ai_predict(features):
-    m  = st.session_state.ai_model
-    sc = st.session_state.ai_scaler
-    if m is None or not st.session_state.ai_trained:
-        mfi, vol_ratio, momentum, atr_pct = features
-        score = 0.0
-        if mfi > MFI_BUY_THRESH:       score += 0.35
-        if vol_ratio > VOL_MULTIPLIER:  score += 0.35
-        if momentum > 0.3:              score += 0.20
-        if atr_pct < 0.05:             score += 0.10
-        return min(score, 0.99)
-    try:
-        X = sc.transform([features])
-        return float(m.predict_proba(X)[0][1])
-    except Exception:
-        return 0.5
-
-def ai_retrain():
-    hist = st.session_state.ai_history
-    if len(hist) < 20:
-        return
-    X = [h[0] for h in hist]
-    y = [h[1] for h in hist]
-    sc = StandardScaler()
-    Xs = sc.fit_transform(X)
-    model = GradientBoostingClassifier(
-        n_estimators=80, max_depth=3,
-        learning_rate=0.1, subsample=0.8, random_state=42,
-    )
-    try:
-        model.fit(Xs, y)
-        st.session_state.ai_model   = model
-        st.session_state.ai_scaler  = sc
-        st.session_state.ai_trained = True
-    except Exception:
-        pass
-
-def ai_record(features, won: bool):
-    st.session_state.ai_history.append((features, int(won)))
-    if len(st.session_state.ai_history) % 10 == 0:
-        ai_retrain()
-
-# ════════════════════════════════════════════════════════════
-#  LOGGING
-# ════════════════════════════════════════════════════════════
-def add_log(msg: str, kind: str = "info"):
-    ts = datetime.now().strftime("%H:%M:%S")
-    st.session_state.logs.appendleft({"ts": ts, "msg": msg, "kind": kind})
-
-# ════════════════════════════════════════════════════════════
-#  MARKET DATA
-# ════════════════════════════════════════════════════════════
-def fetch_ohlcv(symbol, timeframe="1m", limit=60):
-    try:
-        data = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-        if not data or len(data) < 20:
-            return None
-        return pd.DataFrame(data, columns=["ts","open","high","low","close","volume"])
-    except Exception:
-        return None
-
-def fetch_ticker(symbol):
-    try:
-        return exchange.fetch_ticker(symbol)
-    except Exception:
-        return None
-
-# ════════════════════════════════════════════════════════════
-#  TRADE LOGIC
-# ════════════════════════════════════════════════════════════
-def open_trade(symbol, price, atr, features):
-    slots_left = MAX_OPEN - len(st.session_state.open_trades)
-    if slots_left <= 0:
-        return
-    alloc = st.session_state.balance / slots_left
-    qty   = alloc / price
-    sl    = price * (1 - INITIAL_SL_PCT)
-    tp    = price * (1 + TAKE_PROFIT_PCT)
-    trade = {
-        "symbol":      symbol,
-        "entry_price": price,
-        "qty":         qty,
-        "sl":          sl,
-        "tp":          tp,
-        "trail_high":  price,
-        "trail_sl":    sl,
-        "entry_time":  datetime.now().isoformat(timespec="seconds"),
-        "exit_price":  None,
-        "exit_time":   None,
-        "pnl_pct":     None,
-        "status":      "OPEN",
-        "features":    features,
-        "atr":         atr,
-    }
-    st.session_state.open_trades[symbol] = trade
-    st.session_state.balance -= alloc
-    add_log(f"BUY  {symbol} @ ${price:.8f}  SL=${sl:.8f}  TP=${tp:.8f}", "buy")
-
-def close_trade(symbol, price, reason=""):
-    trade = st.session_state.open_trades.pop(symbol, None)
-    if not trade:
-        return
-    pnl_pct  = (price - trade["entry_price"]) / trade["entry_price"] * 100
-    pnl_usdt = (price - trade["entry_price"]) * trade["qty"]
-    st.session_state.balance += trade["qty"] * price
-    trade.update({
-        "exit_price": price,
-        "exit_time":  datetime.now().isoformat(timespec="seconds"),
-        "pnl_pct":    round(pnl_pct, 3),
-        "status":     "WIN" if pnl_pct > 0 else "LOSS",
-    })
-    st.session_state.trades.append(trade)
-    st.session_state.stats["pnl_today"] = round(
-        st.session_state.stats["pnl_today"] + pnl_usdt, 4)
-    st.session_state.stats["pnl_hour"]  = round(
-        st.session_state.stats["pnl_hour"]  + pnl_usdt, 4)
-    if pnl_pct > 0:
-        st.session_state.stats["win"] += 1
-        add_log(f"SELL {symbol} @ ${price:.8f}  PnL={pnl_pct:+.2f}%  [{reason}]", "buy")
-    else:
-        st.session_state.stats["loss"] += 1
-        add_log(f"SELL {symbol} @ ${price:.8f}  PnL={pnl_pct:+.2f}%  [{reason}]", "sell")
-    ai_record(trade["features"], pnl_pct > 0)
-
-def manage_open_trades():
-    for sym in list(st.session_state.open_trades.keys()):
-        t      = st.session_state.open_trades[sym]
-        ticker = fetch_ticker(sym)
-        if not ticker:
-            continue
-        price = ticker["last"]
-        if price > t["trail_high"]:
-            t["trail_high"] = price
-            t["trail_sl"]   = price * (1 - TRAILING_DIST)
-        if price >= t["tp"]:
-            close_trade(sym, price, "TP")
-        elif price <= t["trail_sl"]:
-            close_trade(sym, price, "Trail-SL")
-        elif price <= t["sl"]:
-            close_trade(sym, price, "SL")
-
-def scan_symbols():
-    results = []
-    for sym in WATCHLIST_BASE:
-        try:
-            ticker = fetch_ticker(sym)
-            if not ticker:
-                continue
-            price = ticker["last"]
-            if price is None or price > MAX_PRICE:
-                continue
-            df = fetch_ohlcv(sym)
-            if df is None:
-                continue
-            highs   = df["high"].tolist()
-            lows    = df["low"].tolist()
-            closes  = df["close"].tolist()
-            volumes = df["volume"].tolist()
-
-            mfi       = compute_mfi(highs, lows, closes, volumes)
-            vol_ratio = compute_volume_ratio(volumes)
-            momentum  = compute_momentum(closes)
-            atr       = compute_atr(highs, lows, closes)
-            atr_pct   = atr / closes[-1] if closes[-1] > 0 else 0.01
-            features  = get_features(mfi, vol_ratio, momentum, atr_pct)
-            ai_prob   = ai_predict(features)
-
-            results.append({
-                "symbol":    sym,
-                "price":     price,
-                "mfi":       round(mfi, 1),
-                "vol_ratio": round(vol_ratio, 2),
-                "momentum":  round(momentum, 3),
-                "ai_prob":   round(ai_prob * 100, 1),
-                "signal":    "⚡ STRONG" if ai_prob > 0.65 else ("◎ WATCH" if ai_prob > 0.45 else "○ WEAK"),
-                "features":  features,
-                "atr":       atr,
-            })
-
-            # ── Entry decision ──
-            if (sym not in st.session_state.open_trades
-                    and len(st.session_state.open_trades) < MAX_OPEN
-                    and mfi > MFI_BUY_THRESH
-                    and vol_ratio > VOL_MULTIPLIER
-                    and ai_prob > 0.60
-                    and st.session_state.balance > 1.0):
-                open_trade(sym, price, atr, features)
-
-        except Exception:
-            continue
-
-    results.sort(key=lambda x: x["ai_prob"], reverse=True)
-    st.session_state.scan_list  = results
-    st.session_state.last_update = datetime.now().strftime("%H:%M:%S")
-
-# ════════════════════════════════════════════════════════════
-#  BOT THREAD
-# ════════════════════════════════════════════════════════════
-def bot_loop(stop_event: threading.Event):
-    add_log("Bot started — Paper Trading mode", "info")
-    while not stop_event.is_set():
-        try:
-            manage_open_trades()
-            scan_symbols()
-        except Exception as e:
-            add_log(f"Error: {e}", "warn")
-        for _ in range(SCAN_INTERVAL * 10):
-            if stop_event.is_set():
-                break
-            time.sleep(0.1)
-    add_log("Bot stopped.", "warn")
-
-def start_bot():
-    if st.session_state.running:
-        return
-    st.session_state.stop_event.clear()
-    st.session_state.balance     = st.session_state.budget
-    st.session_state.trades      = []
-    st.session_state.open_trades = {}
-    st.session_state.stats       = {"win": 0, "loss": 0, "pnl_today": 0.0, "pnl_hour": 0.0}
-    st.session_state.logs        = deque(maxlen=60)
-    t = threading.Thread(
-        target=bot_loop,
-        args=(st.session_state.stop_event,),
-        daemon=True,
-    )
-    t.start()
-    st.session_state.thread  = t
-    st.session_state.running = True
-
-def stop_bot():
-    if not st.session_state.running:
-        return
-    st.session_state.stop_event.set()
-    st.session_state.running = False
-
-# ════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown('<div class="sidebar-title">⚡ SCALP BOT</div>', unsafe_allow_html=True)
-    st.markdown("---")
-
-    running  = st.session_state.running
-    dot_cls  = "pulse" if running else "pulse stopped"
-    stat_txt = "RUNNING" if running else "STOPPED"
-    st.markdown(
-        f'<div style="text-align:center;margin-bottom:16px;">'
-        f'<span class="{dot_cls}"></span>'
-        f'<span style="font-family:Rajdhani,sans-serif;font-size:14px;letter-spacing:2px;">{stat_txt}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    budget = st.number_input(
-        "Budget (USDT)", min_value=10.0, max_value=10000.0,
-        value=float(st.session_state.budget), step=10.0,
-    )
-    st.session_state.budget = budget
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<div class="start-btn">', unsafe_allow_html=True)
-        if st.button("▶ START", use_container_width=True):
-            start_bot(); st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
-        if st.button("■ STOP", use_container_width=True):
-            stop_bot(); st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("""
-    <div style="font-size:11px;color:#5a7a99;line-height:1.9;">
-    📊 Volume Breakout + MFI<br>
-    🤖 Gradient Boosting AI<br>
-    🎯 TP: 1.5% | Init SL: 1.2%<br>
-    🔄 Trailing Stop: 0.8%<br>
-    💰 Max Price: $0.001<br>
-    ⚡ Max Open: 2 Trades
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("---")
-    bal     = st.session_state.balance
-    ini     = st.session_state.budget
-    bal_pct = (bal - ini) / ini * 100 if ini > 0 else 0
-    col     = "#00ff9d" if bal >= ini else "#ff3860"
-    st.markdown(
-        f'<div class="metric-label">Current Balance</div>'
-        f'<div style="font-size:22px;font-weight:700;color:{col};">${bal:.2f}</div>'
-        f'<div style="font-size:11px;color:{col};">{bal_pct:+.2f}% from start</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("🔄 Refresh", use_container_width=True):
-        st.rerun()
-
-# ════════════════════════════════════════════════════════════
-#  MAIN DASHBOARD
-# ════════════════════════════════════════════════════════════
-st.markdown(
-    '<h1 style="font-family:Rajdhani,sans-serif;font-size:28px;font-weight:700;'
-    'color:#00d4ff;letter-spacing:4px;margin:0 0 4px;">MEXC SCALPING CONTROL CENTER</h1>'
-    '<div style="font-size:11px;color:#4a6280;letter-spacing:2px;margin-bottom:20px;">'
-    '⚡ PAPER TRADING MODE — LIVE MEXC PRICES</div>',
-    unsafe_allow_html=True,
-)
-
-# ── TOP METRICS ──
-stats = st.session_state.stats
-total = stats["win"] + stats["loss"]
-wr    = stats["win"] / total * 100 if total > 0 else 0.0
-pnl_d = stats["pnl_today"]
-pnl_h = stats["pnl_hour"]
-
-def metric_card(col, label, value, sub="", css_class=""):
-    with col:
-        st.markdown(
-            f'<div class="metric-card {css_class}">'
-            f'<div class="metric-label">{label}</div>'
-            f'<div class="metric-value">{value}</div>'
-            f'<div class="metric-sub">{sub}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-c1, c2, c3, c4, c5 = st.columns(5)
-metric_card(c1, "PnL Today",
-            f'{"+" if pnl_d >= 0 else ""}{pnl_d:.2f} USDT',
-            "Paper trading", "green" if pnl_d >= 0 else "red")
-metric_card(c2, "PnL This Hour",
-            f'{"+" if pnl_h >= 0 else ""}{pnl_h:.2f} USDT',
-            "Rolling", "green" if pnl_h >= 0 else "red")
-metric_card(c3, "Win / Loss",
-            f'{stats["win"]} / {stats["loss"]}',
-            f'{total} total trades', "yellow")
-metric_card(c4, "Win Rate",
-            f'{wr:.1f}%',
-            "AI learning..." if not st.session_state.ai_trained else "AI active",
-            "green" if wr >= 50 else "red")
-metric_card(c5, "Open Trades",
-            f'{len(st.session_state.open_trades)} / {MAX_OPEN}',
-            "max 2 simultaneous", "")
-
-# ── OPEN POSITIONS ──
-st.markdown('<div class="section-header">🔴 LIVE OPEN POSITIONS</div>', unsafe_allow_html=True)
-if st.session_state.open_trades:
-    rows = []
-    for sym, t in st.session_state.open_trades.items():
-        ticker = fetch_ticker(sym)
-        cur    = ticker["last"] if ticker else t["entry_price"]
-        pnl_p  = (cur - t["entry_price"]) / t["entry_price"] * 100
-        rows.append({
-            "Symbol":     sym,
-            "Entry $":    f'{t["entry_price"]:.8f}',
-            "Current $":  f'{cur:.8f}',
-            "TP $":       f'{t["tp"]:.8f}',
-            "Trail SL $": f'{t["trail_sl"]:.8f}',
-            "PnL %":      f'{pnl_p:+.3f}%',
-            "Status":     "🟢 OPEN",
-        })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-else:
-    st.markdown(
-        '<div style="text-align:center;padding:20px;color:#4a6280;font-size:13px;">'
-        '⊘ No open positions — bot scanning for entries...</div>',
-        unsafe_allow_html=True,
-    )
-
-# ── SCANNING LIST ──
-st.markdown('<div class="section-header">🔍 AI SCANNING LIST</div>', unsafe_allow_html=True)
-if st.session_state.scan_list:
-    scan_rows = []
-    for s in st.session_state.scan_list:
-        scan_rows.append({
-            "Symbol":    s["symbol"],
-            "Price $":   f'{s["price"]:.8f}',
-            "MFI":       s["mfi"],
-            "Vol Ratio": f'×{s["vol_ratio"]}',
-            "Momentum":  f'{s["momentum"]:+.3f}%',
-            "AI Prob":   f'{s["ai_prob"]}%',
-            "Signal":    s["signal"],
-        })
-    st.dataframe(pd.DataFrame(scan_rows), use_container_width=True, hide_index=True)
-    st.markdown(
-        f'<div style="font-size:10px;color:#4a6280;text-align:right;margin-top:4px;">'
-        f'Last scan: {st.session_state.last_update}</div>',
-        unsafe_allow_html=True,
-    )
-else:
-    st.markdown(
-        '<div style="text-align:center;padding:20px;color:#4a6280;font-size:13px;">'
-        '⊘ Start bot to begin scanning...</div>',
-        unsafe_allow_html=True,
-    )
-
-# ── TRADE HISTORY ──
-st.markdown('<div class="section-header">📋 TRADE HISTORY</div>', unsafe_allow_html=True)
-if st.session_state.trades:
-    hist_rows = []
-    for t in reversed(st.session_state.trades[-50:]):
-        pnl = t.get("pnl_pct", 0) or 0
-        hist_rows.append({
-            "Symbol":     t["symbol"],
-            "Entry Time": t["entry_time"],
-            "Entry $":    f'{t["entry_price"]:.8f}',
-            "Exit $":     f'{t["exit_price"]:.8f}' if t["exit_price"] else "—",
-            "PnL %":      f'{pnl:+.3f}%',
-            "Status":     "🟢 WIN" if t["status"] == "WIN" else "🔴 LOSS",
-        })
-    st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
-else:
-    st.markdown(
-        '<div style="text-align:center;padding:20px;color:#4a6280;font-size:13px;">'
-        '⊘ No completed trades yet.</div>',
-        unsafe_allow_html=True,
-    )
-
-# ── STATUS LOGS ──
-st.markdown('<div class="section-header">📡 STATUS LOGS</div>', unsafe_allow_html=True)
-if st.session_state.logs:
-    log_html = '<div class="log-box">'
-    for entry in st.session_state.logs:
-        log_html += f'<div class="log-{entry["kind"]}">[{entry["ts"]}] {entry["msg"]}</div>'
-    log_html += '</div>'
-    st.markdown(log_html, unsafe_allow_html=True)
-else:
-    st.markdown(
-        '<div class="log-box" style="color:#4a6280;text-align:center;">'
-        'Waiting for activity...</div>',
-        unsafe_allow_html=True,
-    )
-
-# ── AI STATUS ──
-st.markdown('<div class="section-header">🤖 AI MODEL STATUS</div>', unsafe_allow_html=True)
-a1, a2, a3 = st.columns(3)
-trained = st.session_state.ai_trained
-with a1:
-    st.markdown(
-        f'<div class="metric-card {"green" if trained else "yellow"}">'
-        f'<div class="metric-label">Model Status</div>'
-        f'<div class="metric-value" style="font-size:16px;">{"✓ TRAINED" if trained else "○ LEARNING"}</div>'
-        f'<div class="metric-sub">GradientBoosting</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-with a2:
-    n = len(st.session_state.ai_history)
-    st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-label">Training Samples</div>'
-        f'<div class="metric-value">{n}</div>'
-        f'<div class="metric-sub">Need 20 to train</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-with a3:
-    st.markdown(
-        '<div class="metric-card">'
-        '<div class="metric-label">Entry Threshold</div>'
-        '<div class="metric-value">60%</div>'
-        '<div class="metric-sub">AI confidence min</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-# ── FOOTER ──
-st.markdown("---")
-st.markdown(
-    '<div style="text-align:center;font-size:10px;color:#2a4060;letter-spacing:2px;">'
-    '⚡ MEXC SCALPING BOT — PAPER TRADING ONLY — NOT FINANCIAL ADVICE ⚡'
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-# ── AUTO REFRESH ──
-if st.session_state.running:
-    time.sleep(10)
-    st.rerun()
-📄 requirements.txt
-streamlit>=1.32.0
-ccxt>=4.3.0
-pandas>=2.1.0
-numpy>=1.26.0
-scikit-learn>=1.4.0
-📄 railway.toml
-toml
-[build]
-builder = "nixpacks"
-
-[deploy]
-startCommand = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
-طريقة التشغيل المحلي
-bash
-pip install streamlit ccxt pandas numpy scikit-learn
-streamlit run app.py
-الكود الآن أمامك كاملاً، انسخه مباشرة ✅
-
-You said: هل يمكنك اخباري بطريقة رفعه وتشغيله لاني للاسف لا افقه شيى في البرمجه
-هل يمكنك اخباري بطريقة رفعه وتشغيله لاني للاسف لا افقه شيى في البرمجه
-
-Show more
-27 أبريل
-Claude responded: بالتأكيد!
-بالتأكيد! سأشرح لك بأبسط طريقة ممكنة خطوة بخطوة 😊
-
-أسهل طريقة — Streamlit Cloud (مجاني 100%)
-الخطوة 1️⃣ — إنشاء حساب GitHub
-اذهب لـ github.com
-اضغط Sign up
-أنشئ حساب مجاني بأي إيميل
-الخطوة 2️⃣ — رفع الملفات على GitHub
-بعد تسجيل الدخول اضغط "New repository" (الزر الأخضر)
-سمّه مثلاً mexc-bot
-اضغط "Create repository"
-اضغط "uploading an existing file"
-أنشئ 3 ملفات بهذه الأسماء بالضبط:
-app.py ← الصق فيه كود البوت
-requirements.txt ← الصق فيه المتطلبات
-railway.toml ← الصق فيه إعدادات النشر
-اضغط "Commit changes"
-الخطوة 3️⃣ — رفعه على Streamlit Cloud
-اذهب لـ share.streamlit.io
-سجل دخول بنفس حساب GitHub
-اضغط "New app"
-اختر الـ repository اللي أنشأته mexc-bot
-في خانة Main file path اكتب: app.py
-اضغط "Deploy" ✅
-بعد دقيقتين سيعطيك رابط تفتح منه البوت من أي جهاز أو موبايل 🎉
-
-⚠️ ملاحظة مهمة
-البوت حالياً يعمل بـ أموال وهمية فقط — لا يوجد أي خطر مالي. جرّبه وراقب كيف يعمل قبل أي خطوة أخرى.
-
-هل تريد مني أشرح أي خطوة بتفصيل أكثر؟ 😊
-
-You said: اريد معرفة شئ واحد اخر وهو هل سيعمل البوت بهذه الطريقه حتى وان اغلقة الانترنت في جهازي او اغلقة الكروم
-اريد معرفة شئ واحد اخر وهو هل سيعمل البوت بهذه الطريقه حتى وان اغلقة الانترنت في جهازي او اغلقة الكروم
-
-Show more
-27 أبريل
-Claude responded: نعم!
-نعم! سيعمل بدونك تماماً ✅
-لأنك رفعته على سيرفر Streamlit Cloud وليس على جهازك، يعني:
-
-🟢 سيستمر في العمل حتى لو:
-أغلقت الإنترنت على جهازك
-أغلقت المتصفح
-أغلقت الجهاز كلياً
-نمت أو سافرت 😄
-⚠️ لكن فيه تحذير مهم واحد
-Streamlit Cloud المجاني يوقف التطبيق تلقائياً إذا لم يفتحه أحد لمدة 3-7 أيام
-
-الحل بطريقتين:
-الطريقة 1 — المجانية: موقع مثل uptimerobot.com يدخل على رابط البوت كل 5 دقائق تلقائياً ويبقيه مستيقظاً، وهو مجاني كامل
-
-الطريقة 2 — Railway (مدفوع $5/شهر): لا يوقف أبداً، يعمل 24/7 بدون انقطاع
-
-خلاصة سريعة:
-الموقف	هل البوت يعمل؟
-أغلقت المتصفح	✅ نعم
-أغلقت الإنترنت	✅ نعم
-أغلقت الجهاز	✅ نعم
-لم يفتحه أحد أسبوع	⚠️ يتوقف تلقائياً
-مع UptimeRobot	✅ يعمل للأبد مجاناً
-You said: شكرا جزيلا
-شكرا جزيلا
-اخر سؤال طبعا انت لاتتحمل اي مسؤليه تجاه الاجابه
-ولاكن لنفترض ان البوت عمل بشكل متواصل لمدة 5 ايام ثم قمت بتداول حقيقي للاموال واعطيته 5 دولارات مامدى نسبة نجاحه وخسارته بنسبه لك حاليا وخلال كم افتراضيا سيستطيع مضاعفة المال 
-اريد هذه المعلومات فقط من باب المعرفه لاغير لاكي افكر في طريقه لتحسينه مستقبلا
-
-Show more
-27 أبريل
-Claude responded: تقييم صادق للبوت 📊
-تقييم صادق للبوت 📊
-أولاً — الواقع الحالي بصدق
-النسبة المتوقعة تقريباً:
-
-المقياس	التوقع الواقعي
-Win Rate	40% - 55%
-الصفقات الخاسرة	45% - 60%
-متوسط ربح الصفقة	1.5%
-متوسط خسارة الصفقة	1.2%
-ثانياً — مشكلة الـ $5 تحديداً
-هذا المبلغ فيه عقبة عملية قبل حتى الحديث عن الاستراتيجية:
-
-رسوم MEXC على كل صفقة تتراوح بين 0.1% و 0.2%
-يعني كل صفقة ذهاباً وإياباً تأكل تقريباً 0.3% - 0.4% من المبلغ
-على $5 هذا يعني كل صفقة تكلفك $0.015 - $0.02 قبل أي ربح أو خسارة
-البوت يفتح صفقات كثيرة = الرسوم تتراكم بسرعة
-ثالثاً — السبب الأكبر للقلق
-العملات بسعر $0.001 أو أقل لها طبيعة خاصة جداً:
-
-السيولة منخفضة = صعب الخروج بالسعر المطلوب بالضبط
-التلاعب سهل = مجموعات الـ Pump & Dump تستهدفها تحديداً
-الفارق بين سعر الشراء والبيع (Spread) قد يأكل الربح كاملاً
-رابعاً — تقدير مضاعفة الـ $5
-بصراحة تامة، في السيناريو التفاؤلي جداً:
-
-الأسبوع 1:  $5.00 → $5.80  (+16%)
-الشهر 1:    $5.80 → $8.00  (إذا سارت الأمور جيداً)
-في السيناريو الواقعي الأكثر احتمالاً:
-
-بعد أسبوعين:  $5.00 → $3.50 → $4.20  (تذبذب)
-النتيجة الغالبة: خسارة 20%-40% من المبلغ
-خامساً — ما يحتاج تحسيناً فعلاً قبل التداول الحقيقي
-هذه النقاط هي التي ستصنع الفرق:
-
-1. Backtesting أولاً اختبر الاستراتيجية على بيانات تاريخية قبل أي دولار حقيقي
-
-2. حساب الرسوم داخل البوت البوت الحالي لا يحسب رسوم MEXC في قرار الدخول
-
-3. رفع حد الدخول بدلاً من 60% ثقة AI، جرّب 75% لتقليل الصفقات الخاسرة
-
-4. تصفية العملات إضافة فلتر يستبعد العملات ذات السيولة المنخفضة جداً
-
-الخلاصة الصادقة
-إذا كنت تفكر في تحسينه مستقبلاً، فالأولوية هي Backtesting على 30 يوم من البيانات الحقيقية قبل أي تداول حقيقي — هذا وحده سيعطيك صورة أوضح بكثير من أي تقدير نظري 🎯
-
-You said: هل يمكننا تطوير البوت ليصبح اقوى وافضل من ناحية ادخال الارباح وايضا اضافة العموله في حسبان البوت كما ذكرت لي سابقا ان يكون البوت باللغه العربيه يستحسا هذا
-هل يمكننا تطوير البوت ليصبح اقوى وافضل من ناحية ادخال الارباح وايضا اضافة العموله في حسبان البوت كما ذكرت لي سابقا ان يكون البوت باللغه العربيه يستحسا هذا 
-في الواجهه اريد اضفة شيئ مهم وهو في البوت الحالي لا أستطيع ان ارى ماذا يفعل البوت انتظر ان يدخل في صفقه او يحدث اي شيئ الا انه لمدة ساعه لم يتغير شيئ
-اريد مثلا اسم العمله التي يستكشفها ثم يخبرني بانها لاتصلح مثلا اظهار اسم العمله التاليه وهاكذا ايضا يمكنك اضافة اي ميزات تخدم في صالح البوت دون ان يضر في المهمه الاساسيه
-
-Show more
-12:47 ص
-Claude responded: سأبني النسخة المحسّنة كاملة الآن!
-سأبني النسخة المحسّنة كاملة الآن!
-
-
-Check skills available
-Check skills available
-الآن سأكتب الكود المحسّن الكامل:
-
-python
-"""
 ╔══════════════════════════════════════════════════════════════╗
-║        بوت المضاربة السريعة — MEXC Scalping Bot v2.0        ║
-║     استراتيجية: انفجار السيولة + MFI + ذكاء اصطناعي        ║
-║              وضع: تداول وهمي — Paper Trading                ║
+║        بوت المضاربة السريعة — MEXC Scalping Bot v3.1        ║
+║         إصلاح مشكلة session_state في الخيوط المنفصلة        ║
 ╚══════════════════════════════════════════════════════════════╝
 """
 
@@ -934,592 +20,554 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 
 # ════════════════════════════════════════════════════════════
+#  متغيرات عالمية مشتركة بين الخيط والواجهة
+#  (الحل الأساسي للمشكلة)
+# ════════════════════════════════════════════════════════════
+_lock = threading.Lock()
+
+_state = {
+    "running":         False,
+    "balance":         20.0,
+    "initial_capital": 20.0,
+    "withdrawn":       0.0,
+    "withdraw_ready":  False,
+    "compound_log":    [],
+    "trades":          [],
+    "open_trades":     {},
+    "logs":            deque(maxlen=120),
+    "scan_results":    deque(maxlen=50),
+    "alerts":          deque(maxlen=5),
+    "ai_model":        None,
+    "ai_scaler":       None,
+    "ai_trained":      False,
+    "ai_history":      [],
+    "all_symbols":     [],
+    "symbols_loaded":  False,
+    "current_scan":    "",
+    "scan_cycle":      0,
+    "last_update":     None,
+    "scan_list":       [],
+    "stats": {
+        "win":0,"loss":0,"pnl_today":0.0,"pnl_total":0.0,
+        "total_fees":0.0,"best_trade":0.0,"worst_trade":0.0,
+        "moon_shots":0,"total_scanned":0,
+    },
+}
+
+_stop_event = threading.Event()
+
+def get(key):
+    with _lock:
+        return _state[key]
+
+def set_(key, value):
+    with _lock:
+        _state[key] = value
+
+def get_stat(key):
+    with _lock:
+        return _state["stats"][key]
+
+def set_stat(key, value):
+    with _lock:
+        _state["stats"][key] = value
+
+# ════════════════════════════════════════════════════════════
 #  إعداد الصفحة
 # ════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="بوت المضاربة السريعة",
+    page_title="بوت المضاربة v3.1",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ════════════════════════════════════════════════════════════
-#  التصميم البصري الداكن — الثيم العربي
-# ════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Cairo:wght@400;600;700;900&display=swap');
-
 :root {
-    --bg-deep:   #060b10;
-    --bg-card:   #0b1520;
-    --bg-panel:  #0f1e2e;
-    --border:    #1a3050;
-    --accent:    #00c8ff;
-    --green:     #00ff9d;
-    --red:       #ff3860;
-    --yellow:    #ffd600;
-    --orange:    #ff8c00;
-    --text:      #c8ddf0;
-    --text-dim:  #4a6a8a;
+    --bg:     #060b10;
+    --card:   #0b1520;
+    --panel:  #0f1e2e;
+    --border: #1a3050;
+    --accent: #00c8ff;
+    --green:  #00ff9d;
+    --red:    #ff3860;
+    --yellow: #ffd600;
+    --orange: #ff8c00;
+    --purple: #c084fc;
+    --text:   #c8ddf0;
+    --dim:    #4a6a8a;
 }
-
-html, body, [data-testid="stAppViewContainer"] {
-    background: var(--bg-deep) !important;
-    color: var(--text) !important;
-    font-family: 'Cairo', sans-serif !important;
-    direction: rtl;
+html,body,[data-testid="stAppViewContainer"]{
+    background:var(--bg)!important;
+    color:var(--text)!important;
+    font-family:'Cairo',sans-serif!important;
 }
-[data-testid="stHeader"]  { background: transparent !important; }
-[data-testid="stSidebar"] {
-    background: var(--bg-card) !important;
-    border-left: 1px solid var(--border) !important;
+[data-testid="stHeader"]{background:transparent!important;}
+[data-testid="stSidebar"]{
+    background:var(--card)!important;
+    border-left:1px solid var(--border)!important;
 }
-.block-container { padding: 1rem 1.5rem !important; }
-
-/* بطاقات المقاييس */
-.metric-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 20px;
-    position: relative;
-    overflow: hidden;
-    margin-bottom: 8px;
-}
-.metric-card::after {
-    content: '';
-    position: absolute;
-    bottom: 0; right: 0;
-    width: 100%; height: 3px;
-    background: var(--accent);
-}
-.metric-card.green::after  { background: var(--green); }
-.metric-card.red::after    { background: var(--red); }
-.metric-card.yellow::after { background: var(--yellow); }
-.metric-card.orange::after { background: var(--orange); }
-.metric-label {
-    font-size: 11px; letter-spacing: 1px;
-    color: var(--text-dim); margin-bottom: 6px;
-    font-family: 'Cairo', sans-serif; font-weight: 600;
-}
-.metric-value {
-    font-size: 24px; font-weight: 900;
-    font-family: 'JetBrains Mono', monospace;
-    line-height: 1.1;
-}
-.metric-sub { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
-
-/* عناوين الأقسام */
-.section-header {
-    font-family: 'Cairo', sans-serif;
-    font-size: 14px; font-weight: 700;
-    letter-spacing: 1px;
-    color: var(--accent);
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 8px; margin: 22px 0 12px;
-    display: flex; align-items: center; gap: 8px;
-}
-
-/* بطاقة الفحص المباشر */
-.scan-card {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 18px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    transition: border-color .3s;
-}
-.scan-card.active { border-color: var(--accent); }
-.scan-card.pass   { border-color: var(--green); }
-.scan-card.fail   { border-color: #1a3050; opacity: .7; }
-.scan-symbol {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 15px; font-weight: 700; color: var(--text);
-}
-.scan-reason {
-    font-size: 12px; color: var(--text-dim);
-    font-family: 'Cairo', sans-serif;
-}
-.scan-badge {
-    font-size: 11px; padding: 3px 10px;
-    border-radius: 20px; font-weight: 700;
-    font-family: 'Cairo', sans-serif;
-}
-.badge-scanning { background:#0a2040; color:var(--accent); border:1px solid var(--accent); }
-.badge-pass     { background:#002a1a; color:var(--green);  border:1px solid var(--green); }
-.badge-fail     { background:#1a0010; color:var(--red);    border:1px solid var(--red); }
-.badge-skip     { background:#1a1a00; color:var(--yellow); border:1px solid var(--yellow); }
-
-/* صندوق السجلات */
-.log-box {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 16px;
-    font-size: 12px;
-    max-height: 220px;
-    overflow-y: auto;
-    font-family: 'JetBrains Mono', monospace;
-    direction: ltr;
-}
-.log-buy   { color: var(--green); }
-.log-sell  { color: var(--red); }
-.log-info  { color: var(--accent); }
-.log-warn  { color: var(--yellow); }
-.log-scan  { color: #3a6a8a; }
-.log-pass  { color: #00cc7a; }
-.log-fail  { color: #aa2244; }
-
-/* أزرار التحكم */
-.stButton > button {
-    font-family: 'Cairo', sans-serif !important;
-    font-weight: 700 !important;
-    font-size: 15px !important;
-    border-radius: 8px !important;
-    border: 1px solid var(--accent) !important;
-    color: var(--accent) !important;
-    background: transparent !important;
-    transition: all .2s !important;
-    width: 100%;
-}
-.stButton > button:hover {
-    background: var(--accent) !important;
-    color: var(--bg-deep) !important;
-}
-.start-btn > button { border-color: var(--green) !important; color: var(--green) !important; }
-.start-btn > button:hover { background: var(--green) !important; color: var(--bg-deep) !important; }
-.stop-btn  > button { border-color: var(--red) !important;   color: var(--red) !important; }
-.stop-btn  > button:hover { background: var(--red) !important;   color: var(--bg-deep) !important; }
-
-/* الحقول */
-.stNumberInput input, .stSelectbox select {
-    background: var(--bg-panel) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    border-radius: 6px !important;
-}
-
-/* نبضة الحالة */
-.pulse {
-    display:inline-block; width:9px; height:9px;
-    border-radius:50%; background:var(--green);
-    animation: blink 1.2s infinite; margin-left:6px;
-}
-@keyframes blink {
-    0%,100%{opacity:1;transform:scale(1)}
-    50%{opacity:.3;transform:scale(.6)}
-}
-.pulse.off { background:var(--red); animation:none; }
-
-/* شريط قوة الإشارة */
-.signal-bar-wrap { display:flex; align-items:center; gap:6px; }
-.signal-bar {
-    height:5px; border-radius:3px;
-    background:linear-gradient(90deg,var(--accent),var(--green));
-    transition: width .4s;
-}
-
-/* الجداول */
-[data-testid="stDataFrame"] {
-    border: 1px solid var(--border) !important;
-    border-radius: 10px !important;
-}
-
-/* شريط العنوان الجانبي */
-.sidebar-logo {
-    text-align:center; padding:10px 0 16px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
-}
-.sidebar-logo .title {
-    font-family:'Cairo',sans-serif;
-    font-size:20px; font-weight:900;
-    color:var(--accent); letter-spacing:1px;
-}
-.sidebar-logo .sub {
-    font-size:11px; color:var(--text-dim); margin-top:2px;
-}
-
-/* تنبيه مؤقت */
-.flash-alert {
-    background: #002a1a;
-    border: 1px solid var(--green);
-    border-radius:8px; padding:10px 16px;
-    font-family:'Cairo',sans-serif;
-    font-size:13px; color:var(--green);
-    margin-bottom:8px;
-    animation: fadeout 5s forwards;
-}
-@keyframes fadeout { 0%{opacity:1} 80%{opacity:1} 100%{opacity:0} }
+.block-container{padding:1rem 1.5rem!important;}
+.mc{background:var(--card);border:1px solid var(--border);
+    border-radius:10px;padding:14px 18px;position:relative;
+    overflow:hidden;margin-bottom:8px;}
+.mc::after{content:'';position:absolute;bottom:0;right:0;
+    width:100%;height:3px;background:var(--accent);}
+.mc.g::after{background:var(--green);}
+.mc.r::after{background:var(--red);}
+.mc.y::after{background:var(--yellow);}
+.mc.o::after{background:var(--orange);}
+.mc.p::after{background:var(--purple);}
+.ml{font-size:10px;color:var(--dim);margin-bottom:5px;font-weight:600;}
+.mv{font-size:22px;font-weight:900;font-family:'JetBrains Mono',monospace;}
+.ms{font-size:11px;color:var(--dim);margin-top:4px;}
+.sh{font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;
+    color:var(--accent);border-bottom:1px solid var(--border);
+    padding-bottom:8px;margin:20px 0 12px;}
+.sc{background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:12px 16px;
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:5px;}
+.sc.a{border-color:var(--accent);}
+.sc.p{border-color:var(--green);}
+.sc.f{opacity:.65;}
+.sc.moon{border-color:var(--purple);background:#1a0a2e;}
+.sym{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;}
+.rsn{font-size:11px;color:var(--dim);margin-top:2px;}
+.badge{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:700;}
+.b-scan{background:#0a2040;color:var(--accent);border:1px solid var(--accent);}
+.b-pass{background:#002a1a;color:var(--green);border:1px solid var(--green);}
+.b-fail{background:#1a0010;color:var(--red);border:1px solid var(--red);}
+.b-moon{background:#1a0a2e;color:var(--purple);border:1px solid var(--purple);}
+.log-box{background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:12px 16px;font-size:12px;
+    max-height:250px;overflow-y:auto;
+    font-family:'JetBrains Mono',monospace;direction:ltr;}
+.log-buy{color:var(--green);}
+.log-sell{color:var(--red);}
+.log-info{color:var(--accent);}
+.log-warn{color:var(--yellow);}
+.log-scan{color:#3a5a7a;}
+.log-fail{color:#6a2a3a;}
+.log-pass{color:#00cc7a;}
+.log-moon{color:var(--purple);}
+.log-withdraw{color:var(--yellow);}
+.pulse{display:inline-block;width:9px;height:9px;border-radius:50%;
+    background:var(--green);animation:blink 1.2s infinite;margin-left:6px;}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.6)}}
+.pulse.off{background:var(--red);animation:none;}
+.prog-wrap{background:#0a1a2a;border-radius:6px;height:10px;overflow:hidden;margin-top:6px;}
+.prog-bar{height:100%;border-radius:6px;
+    background:linear-gradient(90deg,var(--accent),var(--green));transition:width .5s;}
+.stButton>button{
+    font-family:'Cairo',sans-serif!important;font-weight:700!important;
+    font-size:14px!important;border-radius:8px!important;
+    border:1px solid var(--accent)!important;
+    color:var(--accent)!important;background:transparent!important;
+    transition:all .2s!important;width:100%;}
+.stButton>button:hover{background:var(--accent)!important;color:var(--bg)!important;}
+.sb>button{border-color:var(--green)!important;color:var(--green)!important;}
+.sb>button:hover{background:var(--green)!important;color:var(--bg)!important;}
+.xb>button{border-color:var(--red)!important;color:var(--red)!important;}
+.xb>button:hover{background:var(--red)!important;color:var(--bg)!important;}
+.wb>button{border-color:var(--yellow)!important;color:var(--yellow)!important;}
+.wb>button:hover{background:var(--yellow)!important;color:var(--bg)!important;}
+[data-testid="stDataFrame"]{border:1px solid var(--border)!important;border-radius:10px!important;}
+.stNumberInput input{
+    background:var(--panel)!important;border:1px solid var(--border)!important;
+    color:var(--text)!important;font-family:'JetBrains Mono',monospace!important;
+    border-radius:6px!important;}
+.withdraw-banner{
+    background:linear-gradient(135deg,#2a1a00,#3a2a00);
+    border:2px solid var(--yellow);border-radius:12px;
+    padding:16px 20px;margin-bottom:12px;font-family:'Cairo',sans-serif;
+    animation:glow 1s infinite alternate;}
+@keyframes glow{
+    from{box-shadow:0 0 5px var(--yellow);}
+    to{box-shadow:0 0 20px var(--yellow),0 0 40px #ff8c0050;}}
 </style>
 """, unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════
-#  تهيئة حالة الجلسة
+#  الثوابت
 # ════════════════════════════════════════════════════════════
-def init_state():
-    defaults = {
-        "running":       False,
-        "budget":        100.0,
-        "balance":       100.0,
-        "trades":        [],
-        "scan_list":     [],
-        "open_trades":   {},
-        "logs":          deque(maxlen=80),
-        "ai_model":      None,
-        "ai_scaler":     None,
-        "ai_trained":    False,
-        "ai_history":    [],
-        "stop_event":    threading.Event(),
-        "stats": {"win":0,"loss":0,"pnl_today":0.0,"pnl_hour":0.0,
-                  "total_fees":0.0,"best_trade":0.0,"worst_trade":0.0},
-        "last_update":   None,
-        "current_scan":  "",
-        "scan_results":  deque(maxlen=30),
-        "alerts":        deque(maxlen=5),
-        "commision_rate": 0.002,   # 0.2% لكل اتجاه
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-init_state()
-
-# ════════════════════════════════════════════════════════════
-#  الثوابت والإعدادات
-# ════════════════════════════════════════════════════════════
-MAX_OPEN        = 2
-TAKE_PROFIT_PCT = 0.018    # 1.8% هدف ربح
-INITIAL_SL_PCT  = 0.012    # 1.2% وقف خسارة أولي
-TRAILING_DIST   = 0.008    # 0.8% مسافة التتبع
-MFI_BUY_THRESH  = 58       # عتبة MFI للدخول
-VOL_MULTIPLIER  = 2.2      # مضاعف حجم التداول
-SCAN_INTERVAL   = 6        # ثواني بين كل دورة فحص
-MAX_PRICE       = 0.001    # أقصى سعر للعملة
-MIN_AI_PROB     = 0.62     # أدنى ثقة للذكاء الاصطناعي
-COMMISSION      = 0.002    # 0.2% عمولة لكل اتجاه
-
-WATCHLIST = [
-    "PEPE/USDT","SHIB/USDT","FLOKI/USDT","BONK/USDT","WIF/USDT",
-    "LUNC/USDT","XEC/USDT","HOT/USDT","BTT/USDT","WIN/USDT",
-    "VOLT/USDT","SAMO/USDT","BABYDOGE/USDT","TURBO/USDT","RATS/USDT",
-    "NEIRO/USDT","MOG/USDT","MEME/USDT","MYRO/USDT","SLERF/USDT",
-]
-
-# أسباب رفض الدخول
-REJECT_REASONS = {
-    "price":    "السعر أعلى من $0.001",
-    "mfi":      "MFI منخفض — لا تدفق للأموال",
-    "volume":   "حجم التداول ضعيف",
-    "ai":       "ثقة الذكاء الاصطناعي منخفضة",
-    "open":     "وصلنا للحد الأقصى من الصفقات",
-    "balance":  "الرصيد غير كافٍ",
-    "data":     "بيانات غير كافية",
-    "fee":      "الربح المتوقع لا يغطي العمولة",
-}
+MAX_OPEN       = 3
+MAX_PRICE      = 0.001
+COMMISSION     = 0.002
+INITIAL_SL_PCT = 0.012
+TRAILING_DIST  = 0.007
+MFI_THRESH     = 55
+VOL_MULT       = 2.0
+MIN_AI_PROB    = 0.60
+BASE_TP        = 0.018
+TRAILING_DIST  = 0.007
+MOON_THRESHOLD = 0.82
+REVERSAL_DROP  = 0.008
+SCAN_DELAY     = 0.4
 
 # ════════════════════════════════════════════════════════════
 #  الاتصال بالبورصة
 # ════════════════════════════════════════════════════════════
 @st.cache_resource
 def get_exchange():
-    return ccxt.mexc({"enableRateLimit": True})
+    return ccxt.mexc({"enableRateLimit": True, "timeout": 15000})
 
 exchange = get_exchange()
+
+# ════════════════════════════════════════════════════════════
+#  السجلات — تكتب في المتغير العالمي فقط
+# ════════════════════════════════════════════════════════════
+def add_log(msg, kind="info"):
+    ts = datetime.now().strftime("%H:%M:%S")
+    with _lock:
+        _state["logs"].appendleft({"ts": ts, "msg": msg, "kind": kind})
+
+def add_scan_result(symbol, status, reason, ai_prob=0.0, price=0.0):
+    with _lock:
+        _state["scan_results"].appendleft({
+            "symbol":  symbol,
+            "status":  status,
+            "reason":  reason,
+            "ai_prob": ai_prob,
+            "price":   price,
+            "time":    datetime.now().strftime("%H:%M:%S"),
+        })
+
+def add_alert(msg):
+    with _lock:
+        _state["alerts"].appendleft({
+            "msg":  msg,
+            "time": datetime.now().strftime("%H:%M:%S"),
+        })
 
 # ════════════════════════════════════════════════════════════
 #  المؤشرات الفنية
 # ════════════════════════════════════════════════════════════
 def compute_mfi(highs, lows, closes, volumes, period=14):
-    tps = (np.array(highs) + np.array(lows) + np.array(closes)) / 3
-    raw_mf = tps * np.array(volumes)
+    tps = (np.array(highs)+np.array(lows)+np.array(closes))/3
+    mf  = tps * np.array(volumes)
     pos = np.zeros(len(tps))
     neg = np.zeros(len(tps))
     for i in range(1, len(tps)):
-        (pos if tps[i] > tps[i-1] else neg)[i] = raw_mf[i]
+        (pos if tps[i] > tps[i-1] else neg)[i] = mf[i]
     vals = []
     for i in range(period, len(tps)):
         p = pos[i-period:i].sum()
         n = neg[i-period:i].sum()
-        vals.append(100.0 if n == 0 else 100 - 100/(1 + p/n))
+        vals.append(100.0 if n == 0 else 100-100/(1+p/n))
     return vals[-1] if vals else 50.0
 
 def compute_rsi(closes, period=14):
-    if len(closes) < period + 1:
-        return 50.0
-    deltas = np.diff(closes)
-    gains  = np.where(deltas > 0, deltas, 0)
-    losses = np.where(deltas < 0, -deltas, 0)
-    avg_g  = np.mean(gains[-period:])
-    avg_l  = np.mean(losses[-period:])
-    if avg_l == 0:
-        return 100.0
-    rs = avg_g / avg_l
-    return 100 - 100 / (1 + rs)
+    if len(closes) < period+1: return 50.0
+    d  = np.diff(closes)
+    g  = np.where(d > 0, d, 0)
+    l  = np.where(d < 0, -d, 0)
+    ag = np.mean(g[-period:])
+    al = np.mean(l[-period:])
+    return 100.0 if al == 0 else 100-100/(1+ag/al)
 
 def compute_momentum(closes, period=5):
-    if len(closes) < period + 1:
-        return 0.0
-    return (closes[-1] - closes[-period-1]) / closes[-period-1] * 100
+    if len(closes) < period+1: return 0.0
+    return (closes[-1]-closes[-period-1])/closes[-period-1]*100
 
 def compute_atr(highs, lows, closes, period=14):
-    trs = [
-        max(highs[i]-lows[i],
-            abs(highs[i]-closes[i-1]),
-            abs(lows[i]-closes[i-1]))
-        for i in range(1, len(closes))
-    ]
-    return np.mean(trs[-period:]) if trs else closes[-1] * 0.01
+    trs = [max(highs[i]-lows[i],
+               abs(highs[i]-closes[i-1]),
+               abs(lows[i]-closes[i-1]))
+           for i in range(1, len(closes))]
+    return np.mean(trs[-period:]) if trs else closes[-1]*0.01
 
 def compute_volume_ratio(volumes, lookback=20):
-    if len(volumes) < lookback + 1:
-        return 1.0
+    if len(volumes) < lookback+1: return 1.0
     avg = np.mean(volumes[-lookback-1:-1])
-    return 1.0 if avg == 0 else volumes[-1] / avg
+    return 1.0 if avg == 0 else volumes[-1]/avg
 
 def compute_ema(closes, period=20):
-    if len(closes) < period:
-        return closes[-1]
-    k = 2 / (period + 1)
-    ema = closes[0]
-    for c in closes[1:]:
-        ema = c * k + ema * (1 - k)
-    return ema
+    if len(closes) < period: return closes[-1]
+    k = 2/(period+1)
+    e = closes[0]
+    for c in closes[1:]: e = c*k+e*(1-k)
+    return e
+
+def detect_reversal(closes, trail_high, current_price):
+    if trail_high <= 0: return False
+    drop = (trail_high - current_price) / trail_high
+    momentum = compute_momentum(closes[-6:], 3) if len(closes) >= 6 else 0
+    return drop >= REVERSAL_DROP and momentum < -0.2
 
 # ════════════════════════════════════════════════════════════
 #  الذكاء الاصطناعي
 # ════════════════════════════════════════════════════════════
-def get_features(mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist):
-    return [mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist]
+def get_features(mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist, vol_trend):
+    return [mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist, vol_trend]
 
 def ai_predict(features):
-    m  = st.session_state.ai_model
-    sc = st.session_state.ai_scaler
-    if m is None or not st.session_state.ai_trained:
-        mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist = features
-        score = 0.0
-        if mfi > MFI_BUY_THRESH:       score += 0.30
-        if vol_ratio > VOL_MULTIPLIER:  score += 0.30
-        if momentum > 0.3:              score += 0.15
-        if rsi > 50 and rsi < 75:      score += 0.15
-        if ema_dist > 0:               score += 0.10
-        return min(score, 0.99)
+    with _lock:
+        m  = _state["ai_model"]
+        sc = _state["ai_scaler"]
+        trained = _state["ai_trained"]
+    if not trained or m is None:
+        mfi,vol_ratio,momentum,atr_pct,rsi,ema_dist,vol_trend = features
+        s = 0.0
+        if mfi > MFI_THRESH:      s += 0.25
+        if vol_ratio > VOL_MULT:  s += 0.25
+        if momentum > 0.3:        s += 0.15
+        if rsi > 50 and rsi < 78: s += 0.15
+        if ema_dist > 0:          s += 0.10
+        if vol_trend > 1.5:       s += 0.10
+        return min(s, 0.99)
     try:
         X = sc.transform([features])
         return float(m.predict_proba(X)[0][1])
-    except Exception:
+    except:
         return 0.5
 
 def ai_retrain():
-    hist = st.session_state.ai_history
-    if len(hist) < 20:
-        return
+    with _lock:
+        hist = list(_state["ai_history"])
+    if len(hist) < 20: return
     X = [h[0] for h in hist]
     y = [h[1] for h in hist]
     sc = StandardScaler()
     Xs = sc.fit_transform(X)
     model = GradientBoostingClassifier(
-        n_estimators=100, max_depth=4,
-        learning_rate=0.08, subsample=0.8,
+        n_estimators=150, max_depth=4,
+        learning_rate=0.07, subsample=0.8,
         min_samples_leaf=3, random_state=42,
     )
     try:
         model.fit(Xs, y)
-        st.session_state.ai_model   = model
-        st.session_state.ai_scaler  = sc
-        st.session_state.ai_trained = True
-        add_log("✓ تم تدريب الذكاء الاصطناعي على بيانات جديدة", "info")
-    except Exception:
-        pass
+        with _lock:
+            _state["ai_model"]   = model
+            _state["ai_scaler"]  = sc
+            _state["ai_trained"] = True
+        add_log(f"🧠 تم تدريب الذكاء الاصطناعي على {len(hist)} صفقة", "info")
+    except Exception as e:
+        add_log(f"⚠ خطأ في تدريب AI: {e}", "warn")
 
-def ai_record(features, won: bool):
-    st.session_state.ai_history.append((features, int(won)))
-    if len(st.session_state.ai_history) % 10 == 0:
+def ai_record(features, won):
+    with _lock:
+        _state["ai_history"].append((features, int(won)))
+        n = len(_state["ai_history"])
+    if n % 10 == 0:
         ai_retrain()
-
-# ════════════════════════════════════════════════════════════
-#  نظام السجلات
-# ════════════════════════════════════════════════════════════
-def add_log(msg: str, kind: str = "info"):
-    ts = datetime.now().strftime("%H:%M:%S")
-    st.session_state.logs.appendleft({"ts": ts, "msg": msg, "kind": kind})
-
-def add_scan_result(symbol: str, status: str, reason: str, ai_prob: float = 0):
-    st.session_state.scan_results.appendleft({
-        "symbol":  symbol,
-        "status":  status,   # scanning / pass / fail / skip
-        "reason":  reason,
-        "ai_prob": ai_prob,
-        "time":    datetime.now().strftime("%H:%M:%S"),
-    })
-
-def add_alert(msg: str):
-    st.session_state.alerts.appendleft({
-        "msg":  msg,
-        "time": datetime.now().strftime("%H:%M:%S"),
-    })
 
 # ════════════════════════════════════════════════════════════
 #  جلب البيانات
 # ════════════════════════════════════════════════════════════
-def fetch_ohlcv(symbol, timeframe="1m", limit=60):
+def fetch_ohlcv(symbol, limit=60):
     try:
-        data = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-        if not data or len(data) < 20:
-            return None
+        data = exchange.fetch_ohlcv(symbol, timeframe="1m", limit=limit)
+        if not data or len(data) < 20: return None
         return pd.DataFrame(data, columns=["ts","open","high","low","close","volume"])
-    except Exception:
+    except:
         return None
 
 def fetch_ticker(symbol):
     try:
         return exchange.fetch_ticker(symbol)
-    except Exception:
+    except:
         return None
 
+def load_all_cheap_symbols():
+    try:
+        tickers = exchange.fetch_tickers()
+        cheap = []
+        for sym, t in tickers.items():
+            if not sym.endswith("/USDT"): continue
+            price = t.get("last") or 0
+            vol   = t.get("quoteVolume") or 0
+            if 0 < price <= MAX_PRICE and vol > 500:
+                cheap.append({"symbol": sym, "vol": vol})
+        cheap.sort(key=lambda x: x["vol"], reverse=True)
+        result = [c["symbol"] for c in cheap]
+        add_log(f"✓ تم تحميل {len(result)} عملة رخيصة", "info")
+        return result
+    except Exception as e:
+        add_log(f"⚠ خطأ تحميل العملات: {e}", "warn")
+        return []
+
 # ════════════════════════════════════════════════════════════
-#  منطق التداول — مع حساب العمولة
+#  منطق التداول
 # ════════════════════════════════════════════════════════════
-def calc_min_profit_pct():
-    """الحد الأدنى للربح بعد خصم العمولة ذهاباً وإياباً"""
-    return COMMISSION * 2 + 0.003   # عمولتان + هامش أمان 0.3%
+def check_compound():
+    with _lock:
+        bal  = _state["balance"]
+        init = _state["initial_capital"]
+        wdrn = _state["withdrawn"]
+        ready = _state["withdraw_ready"]
+    profit = (bal + wdrn) - init
+    if profit >= init and not ready:
+        with _lock:
+            _state["withdraw_ready"] = True
+            _state["compound_log"].append({
+                "الوقت":    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "الحدث":    "تضاعف رأس المال 🎉",
+                "الرصيد":   round(bal, 4),
+                "الربح":    round(profit, 4),
+            })
+        add_log(f"🎉 رأس المال تضاعف! الرصيد=${bal:.2f} الربح=${profit:.2f}", "withdraw")
+        add_alert(f"💰 الربح وصل ${profit:.2f} — يمكنك سحب الأرباح!")
 
-def open_trade(symbol, price, atr, features):
-    slots = MAX_OPEN - len(st.session_state.open_trades)
-    if slots <= 0:
-        return
-    alloc     = st.session_state.balance / slots
-    fee_entry = alloc * COMMISSION
-    qty       = (alloc - fee_entry) / price
-    sl        = price * (1 - INITIAL_SL_PCT)
-    tp        = price * (1 + TAKE_PROFIT_PCT)
+def open_trade(symbol, price, atr, features, is_moon=False):
+    with _lock:
+        open_trades = _state["open_trades"]
+        balance     = _state["balance"]
+        if len(open_trades) >= MAX_OPEN: return
+        if balance < 1.0: return
+        alloc    = balance / MAX_OPEN
+        fee_in   = alloc * COMMISSION
+        qty      = (alloc - fee_in) / price
+        sl       = price * (1 - INITIAL_SL_PCT)
+        tp       = price * (1 + (999 if is_moon else BASE_TP))
+        trade = {
+            "symbol":      symbol,
+            "entry_price": price,
+            "qty":         qty,
+            "alloc":       alloc,
+            "fee_in":      fee_in,
+            "sl":          sl,
+            "tp":          tp,
+            "trail_high":  price,
+            "trail_sl":    sl,
+            "is_moon":     is_moon,
+            "peak_gain":   0.0,
+            "entry_time":  datetime.now().isoformat(timespec="seconds"),
+            "exit_price":  None,
+            "exit_time":   None,
+            "pnl_pct":     None,
+            "status":      "OPEN",
+            "features":    features,
+        }
+        _state["open_trades"][symbol] = trade
+        _state["balance"] -= alloc
+        _state["stats"]["total_fees"] += fee_in
 
-    trade = {
-        "symbol":      symbol,
-        "entry_price": price,
-        "qty":         qty,
-        "alloc":       alloc,
-        "fee_entry":   fee_entry,
-        "sl":          sl,
-        "tp":          tp,
-        "trail_high":  price,
-        "trail_sl":    sl,
-        "entry_time":  datetime.now().isoformat(timespec="seconds"),
-        "exit_price":  None,
-        "exit_time":   None,
-        "pnl_pct":     None,
-        "pnl_net":     None,
-        "status":      "OPEN",
-        "features":    features,
-        "atr":         atr,
-    }
-    st.session_state.open_trades[symbol] = trade
-    st.session_state.balance -= alloc
-    st.session_state.stats["total_fees"] = round(
-        st.session_state.stats["total_fees"] + fee_entry, 6)
-
-    add_log(f"▲ شراء {symbol} @ ${price:.8f} | وقف={sl:.8f} | هدف={tp:.8f}", "buy")
-    add_alert(f"✅ تم الشراء: {symbol} @ ${price:.8f}")
-    add_scan_result(symbol, "pass", f"دخلنا الصفقة — AI: {ai_predict(features)*100:.0f}%", ai_predict(features))
+    mode = "🌙 وضع القمر" if is_moon else "⚡ عادي"
+    add_log(f"▲ شراء {symbol} @ ${price:.8f} | {mode}", "buy")
+    add_alert(f"✅ شراء: {symbol} [{mode}]")
 
 def close_trade(symbol, price, reason=""):
-    trade = st.session_state.open_trades.pop(symbol, None)
-    if not trade:
-        return
+    with _lock:
+        trade = _state["open_trades"].pop(symbol, None)
+    if not trade: return
 
-    fee_exit  = trade["qty"] * price * COMMISSION
-    gross_pnl = (price - trade["entry_price"]) * trade["qty"]
-    net_pnl   = gross_pnl - trade["fee_entry"] - fee_exit
-    pnl_pct   = net_pnl / trade["alloc"] * 100
+    fee_out  = trade["qty"] * price * COMMISSION
+    gross    = (price - trade["entry_price"]) * trade["qty"]
+    net_usdt = gross - trade["fee_in"] - fee_out
+    pnl_pct  = net_usdt / trade["alloc"] * 100
 
-    st.session_state.balance += trade["qty"] * price - fee_exit
-    st.session_state.stats["total_fees"] = round(
-        st.session_state.stats["total_fees"] + fee_exit, 6)
+    with _lock:
+        _state["balance"] += trade["qty"] * price - fee_out
+        _state["stats"]["total_fees"] += fee_out
+        _state["stats"]["pnl_today"]  += net_usdt
+        _state["stats"]["pnl_total"]  += net_usdt
 
     trade.update({
         "exit_price": price,
         "exit_time":  datetime.now().isoformat(timespec="seconds"),
         "pnl_pct":    round(pnl_pct, 3),
-        "pnl_net":    round(net_pnl, 6),
+        "pnl_net":    round(net_usdt, 6),
         "status":     "WIN" if pnl_pct > 0 else "LOSS",
     })
-    st.session_state.trades.append(trade)
 
-    # تحديث الإحصائيات
-    s = st.session_state.stats
-    s["pnl_today"] = round(s["pnl_today"] + net_pnl, 6)
-    s["pnl_hour"]  = round(s["pnl_hour"]  + net_pnl, 6)
+    with _lock:
+        _state["trades"].append(trade)
+        if pnl_pct > 0:
+            _state["stats"]["win"] += 1
+            _state["stats"]["best_trade"] = max(_state["stats"]["best_trade"], pnl_pct)
+            if pnl_pct > 10:
+                _state["stats"]["moon_shots"] += 1
+        else:
+            _state["stats"]["loss"] += 1
+            _state["stats"]["worst_trade"] = min(_state["stats"]["worst_trade"], pnl_pct)
+
     if pnl_pct > 0:
-        s["win"] += 1
-        s["best_trade"] = max(s["best_trade"], pnl_pct)
-        add_log(f"▼ بيع {symbol} @ ${price:.8f} | ربح صافٍ: {pnl_pct:+.2f}% | [{reason}]", "buy")
-        add_alert(f"💰 ربح: {symbol} {pnl_pct:+.2f}% بعد العمولة")
+        add_log(f"▼ بيع {symbol} | ربح: {pnl_pct:+.2f}% [{reason}]",
+                "moon" if pnl_pct > 10 else "buy")
+        add_alert(f"💰 ربح: {symbol} {pnl_pct:+.2f}%")
     else:
-        s["loss"] += 1
-        s["worst_trade"] = min(s["worst_trade"], pnl_pct)
-        add_log(f"▼ بيع {symbol} @ ${price:.8f} | خسارة: {pnl_pct:+.2f}% | [{reason}]", "sell")
-        add_alert(f"⛔ خسارة: {symbol} {pnl_pct:+.2f}% — وقف الخسارة")
+        add_log(f"▼ بيع {symbol} | خسارة: {pnl_pct:+.2f}% [{reason}]", "sell")
+        add_alert(f"⛔ خسارة: {symbol} {pnl_pct:+.2f}%")
 
     ai_record(trade["features"], pnl_pct > 0)
+    check_compound()
 
 def manage_open_trades():
-    for sym in list(st.session_state.open_trades.keys()):
-        t      = st.session_state.open_trades[sym]
+    with _lock:
+        syms = list(_state["open_trades"].keys())
+    for sym in syms:
         ticker = fetch_ticker(sym)
-        if not ticker:
-            continue
-        price = ticker["last"]
-        # تحديث وقف الخسارة المتحرك
-        if price > t["trail_high"]:
-            t["trail_high"] = price
-            t["trail_sl"]   = price * (1 - TRAILING_DIST)
-        # شروط الخروج
-        if price >= t["tp"]:
-            close_trade(sym, price, "هدف الربح ✓")
-        elif price <= t["trail_sl"]:
-            close_trade(sym, price, "وقف متحرك")
-        elif price <= t["sl"]:
-            close_trade(sym, price, "وقف الخسارة")
+        if not ticker: continue
+        price = ticker.get("last") or 0
+        if not price: continue
+        with _lock:
+            t = _state["open_trades"].get(sym)
+            if not t: continue
+            if price > t["trail_high"]:
+                t["trail_high"] = price
+                t["trail_sl"]   = price * (1 - TRAILING_DIST)
+            peak_gain = (t["trail_high"]-t["entry_price"])/t["entry_price"]*100
+            t["peak_gain"]  = peak_gain
+            is_moon = t["is_moon"]
+            sl      = t["sl"]
+            trail_sl = t["trail_sl"]
+            tp      = t["tp"]
+            trail_high = t["trail_high"]
 
-# ════════════════════════════════════════════════════════════
-#  محرك الفحص الذكي
-# ════════════════════════════════════════════════════════════
+        if is_moon:
+            df = fetch_ohlcv(sym, limit=15)
+            closes = df["close"].tolist() if df is not None else [price]
+            if detect_reversal(closes, trail_high, price):
+                close_trade(sym, price, f"ارتداد من القمة ({peak_gain:+.1f}%)")
+            elif price <= sl:
+                close_trade(sym, price, "وقف الخسارة")
+        else:
+            if price >= tp:
+                close_trade(sym, price, "هدف الربح ✓")
+            elif price <= trail_sl:
+                close_trade(sym, price, "وقف متحرك")
+            elif price <= sl:
+                close_trade(sym, price, "وقف الخسارة")
+
 def scan_symbols():
-    results = []
-    min_profit = calc_min_profit_pct()
+    with _lock:
+        symbols = list(_state["all_symbols"])
 
-    for sym in WATCHLIST:
-        # عرض اسم العملة الحالية في الفحص
-        st.session_state.current_scan = sym
-        add_log(f"⟳ فحص {sym}...", "scan")
+    if not symbols: return
+    results = []
+
+    for sym in symbols:
+        if _stop_event.is_set(): break
+
+        with _lock:
+            _state["current_scan"]   = sym
+            _state["stats"]["total_scanned"] += 1
 
         try:
-            # ── فحص الحد الأقصى للصفقات ──
-            if len(st.session_state.open_trades) >= MAX_OPEN and sym not in st.session_state.open_trades:
-                add_scan_result(sym, "skip", REJECT_REASONS["open"])
+            with _lock:
+                open_count = len(_state["open_trades"])
+                open_syms  = list(_state["open_trades"].keys())
+                balance    = _state["balance"]
+
+            if open_count >= MAX_OPEN and sym not in open_syms:
+                time.sleep(SCAN_DELAY * 0.1)
                 continue
 
             ticker = fetch_ticker(sym)
             if not ticker:
-                add_scan_result(sym, "fail", REJECT_REASONS["data"])
+                time.sleep(SCAN_DELAY)
                 continue
-
-            price = ticker["last"]
-
-            # ── فحص السعر ──
-            if price is None or price > MAX_PRICE:
-                add_scan_result(sym, "fail", f"{REJECT_REASONS['price']} (${price:.6f})")
-                add_log(f"✗ {sym} — {REJECT_REASONS['price']}", "fail")
+            price = ticker.get("last") or 0
+            if not price or price > MAX_PRICE:
+                time.sleep(SCAN_DELAY * 0.1)
                 continue
 
             df = fetch_ohlcv(sym)
             if df is None:
-                add_scan_result(sym, "fail", REJECT_REASONS["data"])
+                time.sleep(SCAN_DELAY)
                 continue
 
             highs   = df["high"].tolist()
@@ -1534,199 +582,223 @@ def scan_symbols():
             atr_pct   = atr / closes[-1] if closes[-1] > 0 else 0.01
             rsi       = compute_rsi(closes)
             ema20     = compute_ema(closes, 20)
-            ema_dist  = (closes[-1] - ema20) / ema20 * 100
-            features  = get_features(mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist)
-            ai_prob   = ai_predict(features)
+            ema_dist  = (closes[-1]-ema20)/ema20*100
+            vol_trend = volumes[-1]/volumes[-2] if len(volumes)>1 and volumes[-2]>0 else 1.0
 
-            # ── فحص MFI ──
-            if mfi <= MFI_BUY_THRESH:
-                reason = f"{REJECT_REASONS['mfi']} (MFI={mfi:.1f})"
-                add_scan_result(sym, "fail", reason, ai_prob)
-                add_log(f"✗ {sym} — {reason}", "fail")
-                results.append(build_result(sym, price, mfi, vol_ratio, momentum, ai_prob, "○ ضعيف", features, atr))
-                continue
+            features = get_features(mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist, vol_trend)
+            ai_prob  = ai_predict(features)
+            is_moon  = ai_prob >= MOON_THRESHOLD and vol_ratio > 3.0 and mfi > 65
 
-            # ── فحص حجم التداول ──
-            if vol_ratio <= VOL_MULTIPLIER:
-                reason = f"{REJECT_REASONS['volume']} (×{vol_ratio:.1f})"
-                add_scan_result(sym, "fail", reason, ai_prob)
-                add_log(f"✗ {sym} — {reason}", "fail")
-                results.append(build_result(sym, price, mfi, vol_ratio, momentum, ai_prob, "○ ضعيف", features, atr))
-                continue
+            if is_moon:            signal = "🌙 قمر"
+            elif ai_prob > 0.70:   signal = "⚡ قوي"
+            elif ai_prob > 0.60:   signal = "◎ جيد"
+            elif ai_prob > 0.45:   signal = "○ متابعة"
+            else:                  signal = "✗ ضعيف"
 
-            # ── فحص العمولة ──
-            expected_profit_pct = TAKE_PROFIT_PCT * 100
-            if expected_profit_pct < min_profit * 100:
-                reason = f"{REJECT_REASONS['fee']} (متوقع={expected_profit_pct:.2f}% < لازم={min_profit*100:.2f}%)"
-                add_scan_result(sym, "fail", reason, ai_prob)
-                add_log(f"✗ {sym} — {reason}", "fail")
-                continue
+            results.append({
+                "symbol": sym, "price": price,
+                "mfi": round(mfi,1), "vol_ratio": round(vol_ratio,2),
+                "momentum": round(momentum,3), "ai_prob": round(ai_prob*100,1),
+                "signal": signal, "is_moon": is_moon,
+                "features": features, "atr": atr,
+            })
 
-            # ── فحص الذكاء الاصطناعي ──
-            if ai_prob < MIN_AI_PROB:
-                reason = f"{REJECT_REASONS['ai']} ({ai_prob*100:.0f}%)"
-                add_scan_result(sym, "fail", reason, ai_prob)
-                add_log(f"✗ {sym} — {reason}", "fail")
-                results.append(build_result(sym, price, mfi, vol_ratio, momentum, ai_prob, "◎ متابعة", features, atr))
-                continue
+            can_enter = (
+                sym not in open_syms
+                and open_count < MAX_OPEN
+                and balance > 1.0
+                and mfi > MFI_THRESH
+                and vol_ratio > VOL_MULT
+                and ai_prob >= MIN_AI_PROB
+            )
 
-            # ── اجتاز كل الفلاتر ✓ ──
-            signal = "⚡ قوي"
-            add_scan_result(sym, "pass", f"اجتاز جميع الفلاتر — AI={ai_prob*100:.0f}%", ai_prob)
-            add_log(f"✓ {sym} — إشارة قوية! MFI={mfi:.0f} Vol=×{vol_ratio:.1f} AI={ai_prob*100:.0f}%", "pass")
-            results.append(build_result(sym, price, mfi, vol_ratio, momentum, ai_prob, signal, features, atr))
-
-            # ── قرار الدخول ──
-            if (sym not in st.session_state.open_trades
-                    and len(st.session_state.open_trades) < MAX_OPEN
-                    and st.session_state.balance > 1.0):
-                open_trade(sym, price, atr, features)
+            if can_enter:
+                add_scan_result(sym, "moon" if is_moon else "pass",
+                    f"دخول! AI={ai_prob*100:.0f}% MFI={mfi:.0f}", ai_prob, price)
+                open_trade(sym, price, atr, features, is_moon)
+            else:
+                if mfi <= MFI_THRESH:         reason = f"MFI منخفض ({mfi:.0f})"
+                elif vol_ratio <= VOL_MULT:   reason = f"حجم ضعيف (×{vol_ratio:.1f})"
+                elif ai_prob < MIN_AI_PROB:   reason = f"AI منخفض ({ai_prob*100:.0f}%)"
+                else:                          reason = "صفقات مكتملة أو رصيد"
+                add_scan_result(sym, "fail", reason, ai_prob, price)
 
         except Exception as e:
-            add_scan_result(sym, "fail", f"خطأ: {str(e)[:40]}")
-            add_log(f"⚠ خطأ في {sym}: {str(e)[:50]}", "warn")
-            continue
+            add_log(f"⚠ {sym}: {str(e)[:40]}", "warn")
+
+        time.sleep(SCAN_DELAY)
 
     results.sort(key=lambda x: x["ai_prob"], reverse=True)
-    st.session_state.scan_list   = results
-    st.session_state.last_update = datetime.now().strftime("%H:%M:%S")
-    st.session_state.current_scan = ""
-
-def build_result(sym, price, mfi, vol_ratio, momentum, ai_prob, signal, features, atr):
-    return {
-        "symbol":    sym,
-        "price":     price,
-        "mfi":       round(mfi, 1),
-        "vol_ratio": round(vol_ratio, 2),
-        "momentum":  round(momentum, 3),
-        "ai_prob":   round(ai_prob * 100, 1),
-        "signal":    signal,
-        "features":  features,
-        "atr":       atr,
-    }
+    with _lock:
+        _state["scan_list"]    = results[:30]
+        _state["last_update"]  = datetime.now().strftime("%H:%M:%S")
+        _state["current_scan"] = ""
+        _state["scan_cycle"]  += 1
 
 # ════════════════════════════════════════════════════════════
-#  خيط البوت الرئيسي
+#  خيط البوت — يعمل 24/7 بدون session_state
 # ════════════════════════════════════════════════════════════
-def bot_loop(stop_event: threading.Event):
-    add_log("⚡ بدأ البوت — وضع التداول الوهمي", "info")
-    while not stop_event.is_set():
+def bot_loop():
+    add_log("⚡ البوت يعمل 24/7 — جاري تحميل العملات...", "info")
+    symbols = load_all_cheap_symbols()
+    with _lock:
+        _state["all_symbols"]    = symbols
+        _state["symbols_loaded"] = True
+    add_log(f"📋 {len(symbols)} عملة جاهزة للفحص", "info")
+
+    while not _stop_event.is_set():
         try:
             manage_open_trades()
             scan_symbols()
+            # تحديث قائمة العملات كل ساعة تقريباً
+            with _lock:
+                cycle = _state["scan_cycle"]
+            if cycle % 60 == 0 and cycle > 0:
+                new_syms = load_all_cheap_symbols()
+                with _lock:
+                    _state["all_symbols"] = new_syms
         except Exception as e:
-            add_log(f"⚠ خطأ عام: {e}", "warn")
-        for _ in range(SCAN_INTERVAL * 10):
-            if stop_event.is_set():
-                break
-            time.sleep(0.1)
+            add_log(f"⚠ خطأ عام: {str(e)[:60]}", "warn")
+            time.sleep(10)
+
     add_log("■ توقف البوت.", "warn")
 
-def start_bot():
-    if st.session_state.running:
-        return
-    st.session_state.stop_event.clear()
-    st.session_state.balance     = st.session_state.budget
-    st.session_state.trades      = []
-    st.session_state.open_trades = {}
-    st.session_state.scan_results = deque(maxlen=30)
-    st.session_state.stats = {
-        "win":0,"loss":0,"pnl_today":0.0,"pnl_hour":0.0,
-        "total_fees":0.0,"best_trade":0.0,"worst_trade":0.0
-    }
-    st.session_state.logs   = deque(maxlen=80)
-    st.session_state.alerts = deque(maxlen=5)
-    t = threading.Thread(
-        target=bot_loop,
-        args=(st.session_state.stop_event,),
-        daemon=True,
-    )
+# ════════════════════════════════════════════════════════════
+#  تشغيل/إيقاف
+# ════════════════════════════════════════════════════════════
+def start_bot(budget):
+    if _state["running"]: return
+    _stop_event.clear()
+    with _lock:
+        _state["running"]         = True
+        _state["balance"]         = budget
+        _state["initial_capital"] = budget
+        _state["withdrawn"]       = 0.0
+        _state["withdraw_ready"]  = False
+        _state["trades"]          = []
+        _state["open_trades"]     = {}
+        _state["scan_results"]    = deque(maxlen=50)
+        _state["logs"]            = deque(maxlen=120)
+        _state["alerts"]          = deque(maxlen=5)
+        _state["scan_cycle"]      = 0
+        _state["scan_list"]       = []
+        _state["all_symbols"]     = []
+        _state["stats"] = {
+            "win":0,"loss":0,"pnl_today":0.0,"pnl_total":0.0,
+            "total_fees":0.0,"best_trade":0.0,"worst_trade":0.0,
+            "moon_shots":0,"total_scanned":0,
+        }
+    t = threading.Thread(target=bot_loop, daemon=True)
     t.start()
-    st.session_state.running = True
 
 def stop_bot():
-    if not st.session_state.running:
-        return
-    st.session_state.stop_event.set()
-    st.session_state.running = False
+    _stop_event.set()
+    with _lock:
+        _state["running"] = False
+
+def do_withdraw():
+    with _lock:
+        bal  = _state["balance"]
+        init = _state["initial_capital"]
+        if bal <= init: return
+        profit = bal - init
+        _state["withdrawn"] += profit
+        _state["balance"]    = init
+        _state["withdraw_ready"] = False
+    add_log(f"💸 تم سحب ${profit:.4f} — الرصيد المتداول: ${init:.2f}", "withdraw")
+    add_alert(f"✅ تم سحب: ${profit:.4f}")
+
+# ════════════════════════════════════════════════════════════
+#  قراءة الحالة للعرض (آمنة)
+# ════════════════════════════════════════════════════════════
+def snap():
+    """لقطة آمنة من الحالة للعرض في الواجهة"""
+    with _lock:
+        import copy
+        return copy.deepcopy(_state)
 
 # ════════════════════════════════════════════════════════════
 #  الشريط الجانبي
 # ════════════════════════════════════════════════════════════
+# حقل الميزانية في session_state فقط (للواجهة)
+if "budget_ui" not in st.session_state:
+    st.session_state.budget_ui = 20.0
+
 with st.sidebar:
     st.markdown("""
-    <div class="sidebar-logo">
-        <div class="title">⚡ بوت المضاربة</div>
-        <div class="sub">MEXC Scalping Bot v2.0</div>
-    </div>
-    """, unsafe_allow_html=True)
+    <div style="text-align:center;padding:10px 0 16px;border-bottom:1px solid #1a3050;margin-bottom:16px;">
+    <div style="font-family:Cairo;font-size:20px;font-weight:900;color:#00c8ff;">⚡ بوت المضاربة</div>
+    <div style="font-size:11px;color:#4a6a8a;">MEXC Scalping Bot v3.1</div>
+    </div>""", unsafe_allow_html=True)
 
-    running  = st.session_state.running
-    dot_cls  = "pulse" if running else "pulse off"
-    stat_ar  = "يعمل الآن" if running else "متوقف"
+    running = _state["running"]
     st.markdown(
-        f'<div style="text-align:center;margin-bottom:14px;font-family:Cairo,sans-serif;">'
-        f'<span style="font-size:14px;font-weight:700;">{stat_ar}</span>'
-        f'<span class="{dot_cls}"></span></div>',
-        unsafe_allow_html=True,
-    )
+        f'<div style="text-align:center;margin-bottom:14px;">'
+        f'<span style="font-size:15px;font-weight:700;">'
+        f'{"🟢 يعمل 24/7" if running else "🔴 متوقف"}</span></div>',
+        unsafe_allow_html=True)
 
-    budget = st.number_input(
-        "💰 الميزانية (USDT)",
-        min_value=10.0, max_value=10000.0,
-        value=float(st.session_state.budget), step=10.0,
-    )
-    st.session_state.budget = budget
+    budget = st.number_input("💰 الميزانية (USDT)",
+        min_value=5.0, max_value=10000.0,
+        value=st.session_state.budget_ui, step=5.0,
+        disabled=running)
+    st.session_state.budget_ui = budget
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown('<div class="start-btn">', unsafe_allow_html=True)
-        if st.button("▶ تشغيل", use_container_width=True):
-            start_bot(); st.rerun()
+        st.markdown('<div class="sb">', unsafe_allow_html=True)
+        if st.button("▶ تشغيل", use_container_width=True, disabled=running):
+            start_bot(budget)
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with c2:
-        st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
-        if st.button("■ إيقاف", use_container_width=True):
-            stop_bot(); st.rerun()
+        st.markdown('<div class="xb">', unsafe_allow_html=True)
+        if st.button("■ إيقاف", use_container_width=True, disabled=not running):
+            stop_bot()
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    s = snap()
+    if s["withdraw_ready"]:
+        st.markdown('<div class="wb">', unsafe_allow_html=True)
+        if st.button("💸 سحب الأرباح", use_container_width=True):
+            do_withdraw(); st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
+    bal  = s["balance"]
+    init = s["initial_capital"]
+    wdrn = s["withdrawn"]
+    pct  = (bal-init)/init*100 if init > 0 else 0
+    col  = "#00ff9d" if bal >= init else "#ff3860"
+    prog = min((bal+wdrn-init)/init*100, 100) if init > 0 else 0
 
-    # الرصيد الحالي
-    bal     = st.session_state.balance
-    ini     = st.session_state.budget
-    bal_pct = (bal - ini) / ini * 100 if ini > 0 else 0
-    col     = "#00ff9d" if bal >= ini else "#ff3860"
     st.markdown(
-        f'<div class="metric-label">الرصيد الحالي</div>'
-        f'<div style="font-size:24px;font-weight:900;color:{col};font-family:JetBrains Mono,monospace;">'
-        f'${bal:.4f}</div>'
-        f'<div style="font-size:12px;color:{col};margin-bottom:12px;">{bal_pct:+.2f}% من البداية</div>',
-        unsafe_allow_html=True,
-    )
+        f'<div class="ml">الرصيد المتداول</div>'
+        f'<div style="font-size:22px;font-weight:900;color:{col};font-family:JetBrains Mono,monospace;">${bal:.4f}</div>'
+        f'<div style="font-size:11px;color:{col};margin-bottom:6px;">{pct:+.2f}%</div>'
+        f'<div class="ml">تقدم المضاعفة ({prog:.1f}%)</div>'
+        f'<div class="prog-wrap"><div class="prog-bar" style="width:{prog}%"></div></div>',
+        unsafe_allow_html=True)
 
-    # إجمالي العمولات
-    fees = st.session_state.stats["total_fees"]
-    st.markdown(
-        f'<div class="metric-label">إجمالي العمولات المدفوعة</div>'
-        f'<div style="font-size:16px;font-weight:700;color:#ff8c00;font-family:JetBrains Mono,monospace;">'
-        f'${fees:.6f}</div>',
-        unsafe_allow_html=True,
-    )
+    if wdrn > 0:
+        st.markdown(
+            f'<div style="margin-top:8px;" class="ml">إجمالي المسحوب</div>'
+            f'<div style="font-size:16px;font-weight:700;color:#ffd600;font-family:JetBrains Mono,monospace;">${wdrn:.4f}</div>',
+            unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("""
-    <div style="font-size:12px;color:#3a6a8a;line-height:2;">
-    📊 انفجار السيولة + MFI<br>
-    🤖 Gradient Boosting AI<br>
-    🎯 هدف الربح: 1.8%<br>
-    🛡 وقف الخسارة: 1.2%<br>
-    🔄 الوقف المتحرك: 0.8%<br>
-    💸 العمولة: 0.2% × 2<br>
-    💰 أقصى سعر: $0.001<br>
-    ⚡ أقصى صفقات: 2
-    </div>
-    """, unsafe_allow_html=True)
+    n_sym = len(s["all_symbols"])
+    st.markdown(f"""
+    <div style="font-size:11px;color:#3a6a8a;line-height:2.2;">
+    🔍 العملات المفحوصة: <b style="color:#00c8ff;">{n_sym}</b><br>
+    🌙 وضع القمر: AI > 82%<br>
+    🎯 TP عادي: 1.8% | قمر: ∞<br>
+    🛡 SL: 1.2% | Trailing: 0.7%<br>
+    💸 عمولة: 0.2% × 2<br>
+    🔄 Compound تلقائي<br>
+    ⏰ يعمل 24/7 بلا توقف
+    </div>""", unsafe_allow_html=True)
 
     if st.button("🔄 تحديث الواجهة", use_container_width=True):
         st.rerun()
@@ -1734,278 +806,196 @@ with st.sidebar:
 # ════════════════════════════════════════════════════════════
 #  لوحة التحكم الرئيسية
 # ════════════════════════════════════════════════════════════
+s = snap()
+
 st.markdown(
-    '<h1 style="font-family:Cairo,sans-serif;font-size:26px;font-weight:900;'
-    'color:#00c8ff;margin:0 0 2px;">🚀 مركز التحكم — بوت المضاربة السريعة</h1>'
-    '<div style="font-size:12px;color:#3a6a8a;margin-bottom:18px;">'
-    '⚡ وضع التداول الوهمي — أسعار MEXC المباشرة — مع حساب العمولة الكاملة</div>',
-    unsafe_allow_html=True,
-)
+    '<h1 style="font-family:Cairo,sans-serif;font-size:24px;font-weight:900;'
+    'color:#00c8ff;margin:0 0 2px;">🚀 مركز التحكم — بوت المضاربة v3.1</h1>'
+    '<div style="font-size:11px;color:#3a6a8a;margin-bottom:14px;">'
+    '⚡ إصلاح threading | فحص شامل | Compound تلقائي | 24/7</div>',
+    unsafe_allow_html=True)
 
-# ── تنبيهات لحظية ──
-if st.session_state.alerts:
-    for alert in list(st.session_state.alerts)[:2]:
-        st.markdown(
-            f'<div class="flash-alert">🔔 [{alert["time"]}] {alert["msg"]}</div>',
-            unsafe_allow_html=True,
-        )
+# تنبيه المضاعفة
+if s["withdraw_ready"]:
+    bal2  = s["balance"]
+    init2 = s["initial_capital"]
+    prof2 = bal2 - init2
+    st.markdown(
+        f'<div class="withdraw-banner">'
+        f'<div style="font-size:16px;font-weight:900;color:#ffd600;">🎉 رأس المال تضاعف!</div>'
+        f'<div style="font-size:13px;margin-top:6px;">البداية: ${init2:.2f} | الرصيد: ${bal2:.2f} | الربح: ${prof2:.2f}</div>'
+        f'</div>', unsafe_allow_html=True)
 
-# ── المقاييس العلوية ──
-stats  = st.session_state.stats
-total  = stats["win"] + stats["loss"]
-wr     = stats["win"] / total * 100 if total > 0 else 0.0
-pnl_d  = stats["pnl_today"]
-pnl_h  = stats["pnl_hour"]
+# تنبيهات
+for a in list(s["alerts"])[:2]:
+    st.markdown(
+        f'<div style="background:#002a1a;border:1px solid #00ff9d;border-radius:8px;'
+        f'padding:10px 16px;margin-bottom:6px;font-size:13px;color:#00ff9d;">'
+        f'🔔 [{a["time"]}] {a["msg"]}</div>', unsafe_allow_html=True)
 
-def metric_card(col, label, value, sub="", css=""):
+# المقاييس
+st2   = s["stats"]
+total = st2["win"] + st2["loss"]
+wr    = st2["win"]/total*100 if total > 0 else 0
+
+def mc(col, label, val, sub="", css=""):
     with col:
         st.markdown(
-            f'<div class="metric-card {css}">'
-            f'<div class="metric-label">{label}</div>'
-            f'<div class="metric-value">{value}</div>'
-            f'<div class="metric-sub">{sub}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+            f'<div class="mc {css}"><div class="ml">{label}</div>'
+            f'<div class="mv">{val}</div><div class="ms">{sub}</div></div>',
+            unsafe_allow_html=True)
 
-c1,c2,c3,c4,c5,c6 = st.columns(6)
-metric_card(c1,"ربح اليوم",
-    f'{"+" if pnl_d>=0 else ""}{pnl_d:.4f}$',
-    "صافٍ بعد العمولة","green" if pnl_d>=0 else "red")
-metric_card(c2,"ربح الساعة",
-    f'{"+" if pnl_h>=0 else ""}{pnl_h:.4f}$',
-    "متجدد","green" if pnl_h>=0 else "red")
-metric_card(c3,"رابح / خاسر",
-    f'{stats["win"]} / {stats["loss"]}',
-    f'{total} إجمالي الصفقات',"yellow")
-metric_card(c4,"نسبة النجاح",
-    f'{wr:.1f}%',
-    "AI يتعلم..." if not st.session_state.ai_trained else "AI فعّال ✓",
-    "green" if wr>=50 else "red")
-metric_card(c5,"الصفقات المفتوحة",
-    f'{len(st.session_state.open_trades)}/{MAX_OPEN}',
-    "الحد الأقصى صفقتان","orange")
-metric_card(c6,"إجمالي العمولات",
-    f'${stats["total_fees"]:.5f}',
-    "مخصوم تلقائياً","red")
+c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
+mc(c1,"ربح اليوم",f'{st2["pnl_today"]:+.3f}$',"صافٍ","g" if st2["pnl_today"]>=0 else "r")
+mc(c2,"الربح الكلي",f'{st2["pnl_total"]:+.3f}$',"منذ البداية","g" if st2["pnl_total"]>=0 else "r")
+mc(c3,"ربح/خسارة",f'{st2["win"]}/{st2["loss"]}',f'{total} صفقة',"y")
+mc(c4,"نسبة النجاح",f'{wr:.1f}%',"AI فعّال ✓" if s["ai_trained"] else "يتعلم...","g" if wr>=50 else "r")
+mc(c5,"مفتوحة",f'{len(s["open_trades"])}/{MAX_OPEN}',"حالياً","o")
+mc(c6,"🌙 القمر",f'{st2["moon_shots"]}',"صفقات كبيرة","p")
+mc(c7,"مفحوصة",f'{st2["total_scanned"]:,}',"إجمالي","")
 
-# ── شاشة الفحص المباشر ──
-st.markdown('<div class="section-header">🔍 الفحص المباشر — ماذا يفعل البوت الآن؟</div>', unsafe_allow_html=True)
-
-cur = st.session_state.current_scan
-if cur:
-    st.markdown(
-        f'<div class="scan-card active">'
-        f'<div><span class="scan-symbol">{cur}</span>'
-        f'<div class="scan-reason">جارٍ التحليل...</div></div>'
-        f'<span class="scan-badge badge-scanning">⟳ يفحص</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-scan_history = list(st.session_state.scan_results)[:15]
-if scan_history:
-    for r in scan_history:
-        css  = {"pass":"pass","fail":"fail","skip":"fail","scanning":"active"}.get(r["status"],"fail")
-        badge_cls = {"pass":"badge-pass","fail":"badge-fail","skip":"badge-skip","scanning":"badge-scanning"}.get(r["status"],"badge-fail")
-        badge_txt = {"pass":"✓ اجتاز","fail":"✗ رُفض","skip":"⊘ تخطى","scanning":"⟳ يفحص"}.get(r["status"],"✗")
-        bar = f'<div class="signal-bar-wrap"><div class="signal-bar" style="width:{int(r["ai_prob"]*60)}px"></div><span style="font-size:10px;color:#4a6a8a;">{r["ai_prob"]*100:.0f}%</span></div>' if r["ai_prob"] > 0 else ""
+# الفحص المباشر
+st.markdown('<div class="sh">🔍 الفحص المباشر</div>', unsafe_allow_html=True)
+cur = s["current_scan"]
+cyc = s["scan_cycle"]
+ca, cb = st.columns([3,1])
+with ca:
+    if cur:
         st.markdown(
-            f'<div class="scan-card {css}">'
-            f'<div>'
-            f'<span class="scan-symbol">{r["symbol"]}</span>'
-            f'<div class="scan-reason">{r["reason"]}</div>'
-            f'{bar}</div>'
-            f'<div style="text-align:left;">'
-            f'<span class="scan-badge {badge_cls}">{badge_txt}</span>'
-            f'<div style="font-size:10px;color:#3a6a8a;margin-top:4px;">{r["time"]}</div>'
-            f'</div></div>',
-            unsafe_allow_html=True,
-        )
-elif not cur:
+            f'<div class="sc a"><div><span class="sym">⟳ {cur}</span>'
+            f'<div class="rsn">جارٍ التحليل...</div></div>'
+            f'<span class="badge b-scan">يفحص</span></div>',
+            unsafe_allow_html=True)
+    else:
+        msg = "في انتظار الدورة التالية..." if s["running"] else "شغّل البوت للبدء"
+        st.markdown(f'<div class="sc" style="justify-content:center;color:#3a6a8a;">{msg}</div>',
+                    unsafe_allow_html=True)
+with cb:
     st.markdown(
-        '<div style="text-align:center;padding:24px;color:#3a6a8a;font-family:Cairo,sans-serif;">'
-        'شغّل البوت لبدء الفحص التلقائي...</div>',
-        unsafe_allow_html=True,
-    )
+        f'<div class="mc"><div class="ml">دورة الفحص</div>'
+        f'<div class="mv" style="font-size:18px;">#{cyc}</div>'
+        f'<div class="ms">{len(s["all_symbols"])} عملة</div></div>',
+        unsafe_allow_html=True)
 
-# ── الصفقات المفتوحة ──
-st.markdown('<div class="section-header">🔴 الصفقات المفتوحة حالياً</div>', unsafe_allow_html=True)
-if st.session_state.open_trades:
+for r in list(s["scan_results"])[:10]:
+    is_m = r["status"] == "moon"
+    cc   = "moon" if is_m else ("p" if r["status"]=="pass" else "f")
+    bc   = "b-moon" if is_m else ("b-pass" if r["status"]=="pass" else "b-fail")
+    bt   = "🌙 قمر" if is_m else ("✓ دخلنا" if r["status"]=="pass" else "✗ رُفض")
+    bw   = int(r["ai_prob"]*55)
+    st.markdown(
+        f'<div class="sc {cc}">'
+        f'<div style="flex:1;"><span class="sym">{r["symbol"]}</span>'
+        f'<div class="rsn">{r["reason"]}</div>'
+        f'<div style="display:flex;align-items:center;gap:6px;margin-top:3px;">'
+        f'<div style="width:{bw}px;height:4px;border-radius:2px;background:linear-gradient(90deg,#00c8ff,#00ff9d);"></div>'
+        f'<span style="font-size:10px;color:#4a6a8a;">{r["ai_prob"]*100:.0f}%</span></div></div>'
+        f'<div style="text-align:left;"><span class="badge {bc}">{bt}</span>'
+        f'<div style="font-size:10px;color:#3a6a8a;margin-top:3px;">{r["time"]}</div></div></div>',
+        unsafe_allow_html=True)
+
+# الصفقات المفتوحة
+st.markdown('<div class="sh">🔴 الصفقات المفتوحة</div>', unsafe_allow_html=True)
+if s["open_trades"]:
     rows = []
-    for sym, t in st.session_state.open_trades.items():
-        ticker = fetch_ticker(sym)
-        cur_p  = ticker["last"] if ticker else t["entry_price"]
-        gross  = (cur_p - t["entry_price"]) * t["qty"]
-        net    = gross - t["fee_entry"] - (t["qty"] * cur_p * COMMISSION)
-        pnl_p  = net / t["alloc"] * 100
+    for sym, t in s["open_trades"].items():
+        tk  = fetch_ticker(sym)
+        cur_p = tk["last"] if tk else t["entry_price"]
+        net = ((cur_p-t["entry_price"])*t["qty"] - t["fee_in"] - t["qty"]*cur_p*COMMISSION)
+        pnl = net/t["alloc"]*100
         rows.append({
-            "العملة":         sym,
-            "سعر الدخول":    f'${t["entry_price"]:.8f}',
-            "السعر الحالي":  f'${cur_p:.8f}',
-            "هدف الربح":     f'${t["tp"]:.8f}',
-            "وقف متحرك":    f'${t["trail_sl"]:.8f}',
-            "ربح/خسارة صافٍ": f'{pnl_p:+.3f}%',
-            "الحالة":         "🟢 مفتوحة",
+            "العملة":     sym,
+            "النوع":      "🌙" if t["is_moon"] else "⚡",
+            "الدخول $":  f'{t["entry_price"]:.8f}',
+            "الحالي $":  f'{cur_p:.8f}',
+            "أعلى ربح":  f'{t["peak_gain"]:+.2f}%',
+            "وقف متحرك": f'{t["trail_sl"]:.8f}',
+            "PnL %":     f'{pnl:+.3f}%',
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 else:
-    st.markdown(
-        '<div style="text-align:center;padding:18px;color:#3a6a8a;font-family:Cairo,sans-serif;">'
-        '⊘ لا توجد صفقات مفتوحة — البوت يبحث عن فرص...</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div style="text-align:center;padding:16px;color:#3a6a8a;">⊘ لا صفقات مفتوحة</div>',
+                unsafe_allow_html=True)
 
-# ── قائمة الفحص الشاملة ──
-st.markdown('<div class="section-header">📡 قائمة الفحص الشاملة — تصنيف الذكاء الاصطناعي</div>', unsafe_allow_html=True)
-if st.session_state.scan_list:
-    rows = []
-    for s in st.session_state.scan_list:
-        rows.append({
-            "العملة":      s["symbol"],
-            "السعر $":    f'{s["price"]:.8f}',
-            "MFI":         s["mfi"],
-            "حجم التداول": f'×{s["vol_ratio"]}',
-            "الزخم":       f'{s["momentum"]:+.3f}%',
-            "ثقة AI":      f'{s["ai_prob"]}%',
-            "الإشارة":     s["signal"],
-        })
+# أفضل الإشارات
+st.markdown('<div class="sh">📡 أعلى إشارات AI</div>', unsafe_allow_html=True)
+if s["scan_list"]:
+    rows = [{"العملة":x["symbol"],"السعر $":f'{x["price"]:.8f}',
+             "MFI":x["mfi"],"حجم ×":f'×{x["vol_ratio"]}',
+             "زخم":f'{x["momentum"]:+.3f}%',
+             "AI %":f'{x["ai_prob"]}%',"الإشارة":x["signal"]}
+            for x in s["scan_list"][:10]]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    st.markdown(
-        f'<div style="font-size:11px;color:#3a6a8a;margin-top:4px;font-family:Cairo,sans-serif;">'
-        f'آخر تحديث: {st.session_state.last_update}</div>',
-        unsafe_allow_html=True,
-    )
 
-# ── سجل الصفقات ──
-st.markdown('<div class="section-header">📋 سجل الصفقات التفصيلي</div>', unsafe_allow_html=True)
-if st.session_state.trades:
+# سجل الصفقات
+st.markdown('<div class="sh">📋 سجل الصفقات</div>', unsafe_allow_html=True)
+if s["trades"]:
     rows = []
-    for t in reversed(st.session_state.trades[-50:]):
-        pnl = t.get("pnl_pct", 0) or 0
-        net = t.get("pnl_net", 0) or 0
+    for t in reversed(s["trades"][-60:]):
+        pnl = t.get("pnl_pct",0) or 0
+        net = t.get("pnl_net",0) or 0
         rows.append({
-            "العملة":       t["symbol"],
-            "وقت الدخول":  t["entry_time"],
-            "سعر الدخول":  f'${t["entry_price"]:.8f}',
-            "سعر الخروج":  f'${t["exit_price"]:.8f}' if t["exit_price"] else "—",
-            "الربح/الخسارة": f'{pnl:+.3f}%',
-            "صافٍ (USDT)": f'{net:+.6f}',
-            "الحالة":       "🟢 رابح" if t["status"]=="WIN" else "🔴 خاسر",
+            "العملة":   t["symbol"],
+            "النوع":    "🌙" if t.get("is_moon") else "⚡",
+            "الدخول":  t["entry_time"],
+            "دخول $":  f'{t["entry_price"]:.8f}',
+            "خروج $":  f'{t["exit_price"]:.8f}' if t["exit_price"] else "—",
+            "PnL %":   f'{pnl:+.3f}%',
+            "صافٍ $":  f'{net:+.6f}',
+            "الحالة":   "🟢 ربح" if t["status"]=="WIN" else "🔴 خسارة",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    # إحصائية سريعة
-    s = st.session_state.stats
-    ia1, ia2, ia3 = st.columns(3)
-    with ia1:
-        st.markdown(
-            f'<div class="metric-card green"><div class="metric-label">أفضل صفقة</div>'
-            f'<div class="metric-value" style="font-size:18px;">{s["best_trade"]:+.2f}%</div></div>',
-            unsafe_allow_html=True)
-    with ia2:
-        st.markdown(
-            f'<div class="metric-card red"><div class="metric-label">أسوأ صفقة</div>'
-            f'<div class="metric-value" style="font-size:18px;">{s["worst_trade"]:+.2f}%</div></div>',
-            unsafe_allow_html=True)
-    with ia3:
-        avg = pnl_d / total if total > 0 else 0
-        st.markdown(
-            f'<div class="metric-card yellow"><div class="metric-label">متوسط الصفقة</div>'
-            f'<div class="metric-value" style="font-size:18px;">{avg:+.3f}$</div></div>',
-            unsafe_allow_html=True)
-else:
-    st.markdown(
-        '<div style="text-align:center;padding:18px;color:#3a6a8a;font-family:Cairo,sans-serif;">'
-        '⊘ لا توجد صفقات مكتملة بعد.</div>',
-        unsafe_allow_html=True,
-    )
-
-# ── سجل الأحداث اللحظي ──
-st.markdown('<div class="section-header">📟 سجل الأحداث اللحظي</div>', unsafe_allow_html=True)
-
-# فلتر عرض السجلات
-log_filter = st.selectbox(
-    "عرض:",
-    ["الكل","الصفقات فقط","الفحص فقط","التحذيرات"],
-    label_visibility="collapsed",
-)
-filter_map = {
+# سجل الأحداث
+st.markdown('<div class="sh">📟 سجل الأحداث</div>', unsafe_allow_html=True)
+filt = st.selectbox("عرض:",
+    ["الكل","الصفقات","نتائج الفحص","التحذيرات","القمر 🌙"],
+    label_visibility="collapsed")
+fmap = {
     "الكل":        None,
-    "الصفقات فقط": ["buy","sell"],
-    "الفحص فقط":   ["scan","pass","fail"],
+    "الصفقات":     ["buy","sell","moon","withdraw"],
+    "نتائج الفحص": ["pass","fail","scan"],
     "التحذيرات":   ["warn"],
+    "القمر 🌙":    ["moon"],
 }
-chosen = filter_map[log_filter]
-
-logs_to_show = [
-    l for l in st.session_state.logs
-    if chosen is None or l["kind"] in chosen
-]
-
-if logs_to_show:
-    log_html = '<div class="log-box">'
-    for entry in logs_to_show[:40]:
-        log_html += f'<div class="log-{entry["kind"]}">[{entry["ts"]}] {entry["msg"]}</div>'
-    log_html += '</div>'
-    st.markdown(log_html, unsafe_allow_html=True)
+chosen = fmap[filt]
+logs_all = list(s["logs"])
+logs_show = [l for l in logs_all if chosen is None or l["kind"] in chosen]
+if logs_show:
+    html = '<div class="log-box">'
+    for e in logs_show[:60]:
+        html += f'<div class="log-{e["kind"]}">[{e["ts"]}] {e["msg"]}</div>'
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 else:
-    st.markdown(
-        '<div class="log-box" style="color:#3a6a8a;text-align:center;">'
-        'في انتظار الأحداث...</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="log-box" style="color:#3a6a8a;text-align:center;">في انتظار الأحداث...</div>',
+                unsafe_allow_html=True)
 
-# ── حالة الذكاء الاصطناعي ──
-st.markdown('<div class="section-header">🤖 حالة الذكاء الاصطناعي</div>', unsafe_allow_html=True)
-a1, a2, a3, a4 = st.columns(4)
-trained = st.session_state.ai_trained
-n_hist  = len(st.session_state.ai_history)
-progress = min(n_hist / 20 * 100, 100)
+# حالة AI
+st.markdown('<div class="sh">🧠 حالة الذكاء الاصطناعي</div>', unsafe_allow_html=True)
+a1,a2,a3,a4 = st.columns(4)
+trained = s["ai_trained"]
+n_hist  = len(s["ai_history"])
+for col,label,val,sub,css in [
+    (a1,"الحالة","✓ مُدرَّب" if trained else "⟳ يتعلم","Gradient Boosting","g" if trained else "y"),
+    (a2,"العينات",str(n_hist),f"تقدم: {min(n_hist/20*100,100):.0f}%",""),
+    (a3,"المؤشرات","7","MFI،RSI،EMA،ATR،حجم،زخم،اتجاه",""),
+    (a4,"عتبة القمر 🌙","82%","لا سقف للربح","p"),
+]:
+    with col:
+        st.markdown(
+            f'<div class="mc {css}"><div class="ml">{label}</div>'
+            f'<div class="mv" style="font-size:16px;">{val}</div>'
+            f'<div class="ms">{sub}</div></div>',
+            unsafe_allow_html=True)
 
-with a1:
-    st.markdown(
-        f'<div class="metric-card {"green" if trained else "yellow"}">'
-        f'<div class="metric-label">حالة النموذج</div>'
-        f'<div class="metric-value" style="font-size:16px;">{"✓ مُدرَّب" if trained else "⟳ يتعلم"}</div>'
-        f'<div class="metric-sub">Gradient Boosting</div></div>',
-        unsafe_allow_html=True,
-    )
-with a2:
-    st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-label">عينات التدريب</div>'
-        f'<div class="metric-value">{n_hist}</div>'
-        f'<div class="metric-sub">يحتاج 20 للبدء ({progress:.0f}%)</div></div>',
-        unsafe_allow_html=True,
-    )
-with a3:
-    st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-label">حد الثقة للدخول</div>'
-        f'<div class="metric-value">{MIN_AI_PROB*100:.0f}%</div>'
-        f'<div class="metric-sub">أدنى نسبة مقبولة</div></div>',
-        unsafe_allow_html=True,
-    )
-with a4:
-    st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-label">المؤشرات المستخدمة</div>'
-        f'<div class="metric-value" style="font-size:14px;">6</div>'
-        f'<div class="metric-sub">MFI،RSI،EMA،ATR،حجم،زخم</div></div>',
-        unsafe_allow_html=True,
-    )
-
-# ── تذييل ──
 st.markdown("---")
 st.markdown(
-    '<div style="text-align:center;font-size:11px;color:#1a3050;font-family:Cairo,sans-serif;">'
-    '⚡ بوت المضاربة السريعة — وضع التداول الوهمي فقط — ليس نصيحة مالية ⚡'
-    '</div>',
-    unsafe_allow_html=True,
-)
+    '<div style="text-align:center;font-size:10px;color:#1a3050;">'
+    '⚡ بوت المضاربة v3.1 — وضع التداول الوهمي — ليس نصيحة مالية ⚡</div>',
+    unsafe_allow_html=True)
 
-# التحديث التلقائي كل 8 ثوانٍ عند التشغيل
-if st.session_state.running:
+# تحديث تلقائي
+if _state["running"]:
     time.sleep(8)
     st.rerun()
