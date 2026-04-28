@@ -20,8 +20,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 
 # ════════════════════════════════════════════════════════════
-#  متغيرات عالمية مشتركة بين الخيط والواجهة
-#  (الحل الأساسي للمشكلة)
+#  متغيرات عالمية مشتركة — الحل الأساسي لمشكلة Threading
 # ════════════════════════════════════════════════════════════
 _lock = threading.Lock()
 
@@ -48,29 +47,13 @@ _state = {
     "last_update":     None,
     "scan_list":       [],
     "stats": {
-        "win":0,"loss":0,"pnl_today":0.0,"pnl_total":0.0,
-        "total_fees":0.0,"best_trade":0.0,"worst_trade":0.0,
-        "moon_shots":0,"total_scanned":0,
+        "win": 0, "loss": 0, "pnl_today": 0.0, "pnl_total": 0.0,
+        "total_fees": 0.0, "best_trade": 0.0, "worst_trade": 0.0,
+        "moon_shots": 0, "total_scanned": 0,
     },
 }
 
 _stop_event = threading.Event()
-
-def get(key):
-    with _lock:
-        return _state[key]
-
-def set_(key, value):
-    with _lock:
-        _state[key] = value
-
-def get_stat(key):
-    with _lock:
-        return _state["stats"][key]
-
-def set_stat(key, value):
-    with _lock:
-        _state["stats"][key] = value
 
 # ════════════════════════════════════════════════════════════
 #  إعداد الصفحة
@@ -202,7 +185,6 @@ MFI_THRESH     = 55
 VOL_MULT       = 2.0
 MIN_AI_PROB    = 0.60
 BASE_TP        = 0.018
-TRAILING_DIST  = 0.007
 MOON_THRESHOLD = 0.82
 REVERSAL_DROP  = 0.008
 SCAN_DELAY     = 0.4
@@ -227,26 +209,22 @@ def add_log(msg, kind="info"):
 def add_scan_result(symbol, status, reason, ai_prob=0.0, price=0.0):
     with _lock:
         _state["scan_results"].appendleft({
-            "symbol":  symbol,
-            "status":  status,
-            "reason":  reason,
-            "ai_prob": ai_prob,
-            "price":   price,
-            "time":    datetime.now().strftime("%H:%M:%S"),
+            "symbol": symbol, "status": status,
+            "reason": reason, "ai_prob": ai_prob,
+            "price": price, "time": datetime.now().strftime("%H:%M:%S"),
         })
 
 def add_alert(msg):
     with _lock:
         _state["alerts"].appendleft({
-            "msg":  msg,
-            "time": datetime.now().strftime("%H:%M:%S"),
+            "msg": msg, "time": datetime.now().strftime("%H:%M:%S"),
         })
 
 # ════════════════════════════════════════════════════════════
 #  المؤشرات الفنية
 # ════════════════════════════════════════════════════════════
 def compute_mfi(highs, lows, closes, volumes, period=14):
-    tps = (np.array(highs)+np.array(lows)+np.array(closes))/3
+    tps = (np.array(highs) + np.array(lows) + np.array(closes)) / 3
     mf  = tps * np.array(volumes)
     pos = np.zeros(len(tps))
     neg = np.zeros(len(tps))
@@ -256,39 +234,39 @@ def compute_mfi(highs, lows, closes, volumes, period=14):
     for i in range(period, len(tps)):
         p = pos[i-period:i].sum()
         n = neg[i-period:i].sum()
-        vals.append(100.0 if n == 0 else 100-100/(1+p/n))
+        vals.append(100.0 if n == 0 else 100 - 100 / (1 + p / n))
     return vals[-1] if vals else 50.0
 
 def compute_rsi(closes, period=14):
-    if len(closes) < period+1: return 50.0
+    if len(closes) < period + 1: return 50.0
     d  = np.diff(closes)
     g  = np.where(d > 0, d, 0)
     l  = np.where(d < 0, -d, 0)
     ag = np.mean(g[-period:])
     al = np.mean(l[-period:])
-    return 100.0 if al == 0 else 100-100/(1+ag/al)
+    return 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
 
 def compute_momentum(closes, period=5):
-    if len(closes) < period+1: return 0.0
-    return (closes[-1]-closes[-period-1])/closes[-period-1]*100
+    if len(closes) < period + 1: return 0.0
+    return (closes[-1] - closes[-period-1]) / closes[-period-1] * 100
 
 def compute_atr(highs, lows, closes, period=14):
-    trs = [max(highs[i]-lows[i],
-               abs(highs[i]-closes[i-1]),
-               abs(lows[i]-closes[i-1]))
+    trs = [max(highs[i] - lows[i],
+               abs(highs[i] - closes[i-1]),
+               abs(lows[i]  - closes[i-1]))
            for i in range(1, len(closes))]
-    return np.mean(trs[-period:]) if trs else closes[-1]*0.01
+    return np.mean(trs[-period:]) if trs else closes[-1] * 0.01
 
 def compute_volume_ratio(volumes, lookback=20):
-    if len(volumes) < lookback+1: return 1.0
+    if len(volumes) < lookback + 1: return 1.0
     avg = np.mean(volumes[-lookback-1:-1])
-    return 1.0 if avg == 0 else volumes[-1]/avg
+    return 1.0 if avg == 0 else volumes[-1] / avg
 
 def compute_ema(closes, period=20):
     if len(closes) < period: return closes[-1]
-    k = 2/(period+1)
+    k = 2 / (period + 1)
     e = closes[0]
-    for c in closes[1:]: e = c*k+e*(1-k)
+    for c in closes[1:]: e = c * k + e * (1 - k)
     return e
 
 def detect_reversal(closes, trail_high, current_price):
@@ -305,18 +283,18 @@ def get_features(mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist, vol_trend):
 
 def ai_predict(features):
     with _lock:
-        m  = _state["ai_model"]
-        sc = _state["ai_scaler"]
+        m       = _state["ai_model"]
+        sc      = _state["ai_scaler"]
         trained = _state["ai_trained"]
     if not trained or m is None:
-        mfi,vol_ratio,momentum,atr_pct,rsi,ema_dist,vol_trend = features
+        mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist, vol_trend = features
         s = 0.0
-        if mfi > MFI_THRESH:      s += 0.25
-        if vol_ratio > VOL_MULT:  s += 0.25
-        if momentum > 0.3:        s += 0.15
-        if rsi > 50 and rsi < 78: s += 0.15
-        if ema_dist > 0:          s += 0.10
-        if vol_trend > 1.5:       s += 0.10
+        if mfi > MFI_THRESH:       s += 0.25
+        if vol_ratio > VOL_MULT:   s += 0.25
+        if momentum > 0.3:         s += 0.15
+        if rsi > 50 and rsi < 78:  s += 0.15
+        if ema_dist > 0:           s += 0.10
+        if vol_trend > 1.5:        s += 0.10
         return min(s, 0.99)
     try:
         X = sc.transform([features])
@@ -328,8 +306,8 @@ def ai_retrain():
     with _lock:
         hist = list(_state["ai_history"])
     if len(hist) < 20: return
-    X = [h[0] for h in hist]
-    y = [h[1] for h in hist]
+    X  = [h[0] for h in hist]
+    y  = [h[1] for h in hist]
     sc = StandardScaler()
     Xs = sc.fit_transform(X)
     model = GradientBoostingClassifier(
@@ -343,9 +321,9 @@ def ai_retrain():
             _state["ai_model"]   = model
             _state["ai_scaler"]  = sc
             _state["ai_trained"] = True
-        add_log(f"🧠 تم تدريب الذكاء الاصطناعي على {len(hist)} صفقة", "info")
+        add_log(f"🧠 تم تدريب AI على {len(hist)} صفقة", "info")
     except Exception as e:
-        add_log(f"⚠ خطأ في تدريب AI: {e}", "warn")
+        add_log(f"⚠ خطأ AI: {e}", "warn")
 
 def ai_record(features, won):
     with _lock:
@@ -390,56 +368,59 @@ def load_all_cheap_symbols():
         return []
 
 # ════════════════════════════════════════════════════════════
-#  منطق التداول
+#  Compound
 # ════════════════════════════════════════════════════════════
 def check_compound():
     with _lock:
-        bal  = _state["balance"]
-        init = _state["initial_capital"]
-        wdrn = _state["withdrawn"]
+        bal   = _state["balance"]
+        init  = _state["initial_capital"]
+        wdrn  = _state["withdrawn"]
         ready = _state["withdraw_ready"]
     profit = (bal + wdrn) - init
     if profit >= init and not ready:
         with _lock:
             _state["withdraw_ready"] = True
             _state["compound_log"].append({
-                "الوقت":    datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "الحدث":    "تضاعف رأس المال 🎉",
-                "الرصيد":   round(bal, 4),
-                "الربح":    round(profit, 4),
+                "الوقت":  datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "الحدث":  "تضاعف رأس المال 🎉",
+                "الرصيد": round(bal, 4),
+                "الربح":  round(profit, 4),
             })
-        add_log(f"🎉 رأس المال تضاعف! الرصيد=${bal:.2f} الربح=${profit:.2f}", "withdraw")
+        add_log(f"🎉 رأس المال تضاعف! الرصيد=${bal:.2f}", "withdraw")
         add_alert(f"💰 الربح وصل ${profit:.2f} — يمكنك سحب الأرباح!")
 
+def do_withdraw():
+    with _lock:
+        bal  = _state["balance"]
+        init = _state["initial_capital"]
+        if bal <= init: return
+        profit = bal - init
+        _state["withdrawn"]     += profit
+        _state["balance"]        = init
+        _state["withdraw_ready"] = False
+    add_log(f"💸 تم سحب ${profit:.4f} | الرصيد المتداول: ${init:.2f}", "withdraw")
+    add_alert(f"✅ تم سحب: ${profit:.4f}")
+
+# ════════════════════════════════════════════════════════════
+#  منطق التداول
+# ════════════════════════════════════════════════════════════
 def open_trade(symbol, price, atr, features, is_moon=False):
     with _lock:
-        open_trades = _state["open_trades"]
-        balance     = _state["balance"]
-        if len(open_trades) >= MAX_OPEN: return
-        if balance < 1.0: return
-        alloc    = balance / MAX_OPEN
-        fee_in   = alloc * COMMISSION
-        qty      = (alloc - fee_in) / price
-        sl       = price * (1 - INITIAL_SL_PCT)
-        tp       = price * (1 + (999 if is_moon else BASE_TP))
-        trade = {
-            "symbol":      symbol,
-            "entry_price": price,
-            "qty":         qty,
-            "alloc":       alloc,
-            "fee_in":      fee_in,
-            "sl":          sl,
-            "tp":          tp,
-            "trail_high":  price,
-            "trail_sl":    sl,
-            "is_moon":     is_moon,
-            "peak_gain":   0.0,
-            "entry_time":  datetime.now().isoformat(timespec="seconds"),
-            "exit_price":  None,
-            "exit_time":   None,
-            "pnl_pct":     None,
-            "status":      "OPEN",
-            "features":    features,
+        if len(_state["open_trades"]) >= MAX_OPEN: return
+        if _state["balance"] < 1.0: return
+        alloc  = _state["balance"] / MAX_OPEN
+        fee_in = alloc * COMMISSION
+        qty    = (alloc - fee_in) / price
+        sl     = price * (1 - INITIAL_SL_PCT)
+        tp     = price * (1 + (999.0 if is_moon else BASE_TP))
+        trade  = {
+            "symbol": symbol, "entry_price": price,
+            "qty": qty, "alloc": alloc, "fee_in": fee_in,
+            "sl": sl, "tp": tp, "trail_high": price, "trail_sl": sl,
+            "is_moon": is_moon, "peak_gain": 0.0,
+            "entry_time": datetime.now().isoformat(timespec="seconds"),
+            "exit_price": None, "exit_time": None,
+            "pnl_pct": None, "status": "OPEN", "features": features,
         }
         _state["open_trades"][symbol] = trade
         _state["balance"] -= alloc
@@ -460,7 +441,7 @@ def close_trade(symbol, price, reason=""):
     pnl_pct  = net_usdt / trade["alloc"] * 100
 
     with _lock:
-        _state["balance"] += trade["qty"] * price - fee_out
+        _state["balance"]            += trade["qty"] * price - fee_out
         _state["stats"]["total_fees"] += fee_out
         _state["stats"]["pnl_today"]  += net_usdt
         _state["stats"]["pnl_total"]  += net_usdt
@@ -509,19 +490,19 @@ def manage_open_trades():
             if price > t["trail_high"]:
                 t["trail_high"] = price
                 t["trail_sl"]   = price * (1 - TRAILING_DIST)
-            peak_gain = (t["trail_high"]-t["entry_price"])/t["entry_price"]*100
-            t["peak_gain"]  = peak_gain
-            is_moon = t["is_moon"]
-            sl      = t["sl"]
-            trail_sl = t["trail_sl"]
-            tp      = t["tp"]
+            peak_gain  = (t["trail_high"] - t["entry_price"]) / t["entry_price"] * 100
+            t["peak_gain"] = peak_gain
+            is_moon    = t["is_moon"]
+            sl         = t["sl"]
+            trail_sl   = t["trail_sl"]
+            tp         = t["tp"]
             trail_high = t["trail_high"]
 
         if is_moon:
             df = fetch_ohlcv(sym, limit=15)
             closes = df["close"].tolist() if df is not None else [price]
             if detect_reversal(closes, trail_high, price):
-                close_trade(sym, price, f"ارتداد من القمة ({peak_gain:+.1f}%)")
+                close_trade(sym, price, f"ارتداد ({peak_gain:+.1f}%)")
             elif price <= sl:
                 close_trade(sym, price, "وقف الخسارة")
         else:
@@ -535,15 +516,13 @@ def manage_open_trades():
 def scan_symbols():
     with _lock:
         symbols = list(_state["all_symbols"])
-
     if not symbols: return
     results = []
 
     for sym in symbols:
         if _stop_event.is_set(): break
-
         with _lock:
-            _state["current_scan"]   = sym
+            _state["current_scan"] = sym
             _state["stats"]["total_scanned"] += 1
 
         try:
@@ -557,18 +536,12 @@ def scan_symbols():
                 continue
 
             ticker = fetch_ticker(sym)
-            if not ticker:
-                time.sleep(SCAN_DELAY)
-                continue
+            if not ticker: time.sleep(SCAN_DELAY); continue
             price = ticker.get("last") or 0
-            if not price or price > MAX_PRICE:
-                time.sleep(SCAN_DELAY * 0.1)
-                continue
+            if not price or price > MAX_PRICE: time.sleep(SCAN_DELAY * 0.1); continue
 
             df = fetch_ohlcv(sym)
-            if df is None:
-                time.sleep(SCAN_DELAY)
-                continue
+            if df is None: time.sleep(SCAN_DELAY); continue
 
             highs   = df["high"].tolist()
             lows    = df["low"].tolist()
@@ -582,23 +555,23 @@ def scan_symbols():
             atr_pct   = atr / closes[-1] if closes[-1] > 0 else 0.01
             rsi       = compute_rsi(closes)
             ema20     = compute_ema(closes, 20)
-            ema_dist  = (closes[-1]-ema20)/ema20*100
-            vol_trend = volumes[-1]/volumes[-2] if len(volumes)>1 and volumes[-2]>0 else 1.0
+            ema_dist  = (closes[-1] - ema20) / ema20 * 100
+            vol_trend = volumes[-1] / volumes[-2] if len(volumes) > 1 and volumes[-2] > 0 else 1.0
 
             features = get_features(mfi, vol_ratio, momentum, atr_pct, rsi, ema_dist, vol_trend)
             ai_prob  = ai_predict(features)
             is_moon  = ai_prob >= MOON_THRESHOLD and vol_ratio > 3.0 and mfi > 65
 
-            if is_moon:            signal = "🌙 قمر"
-            elif ai_prob > 0.70:   signal = "⚡ قوي"
-            elif ai_prob > 0.60:   signal = "◎ جيد"
-            elif ai_prob > 0.45:   signal = "○ متابعة"
-            else:                  signal = "✗ ضعيف"
+            if is_moon:           signal = "🌙 قمر"
+            elif ai_prob > 0.70:  signal = "⚡ قوي"
+            elif ai_prob > 0.60:  signal = "◎ جيد"
+            elif ai_prob > 0.45:  signal = "○ متابعة"
+            else:                 signal = "✗ ضعيف"
 
             results.append({
                 "symbol": sym, "price": price,
-                "mfi": round(mfi,1), "vol_ratio": round(vol_ratio,2),
-                "momentum": round(momentum,3), "ai_prob": round(ai_prob*100,1),
+                "mfi": round(mfi, 1), "vol_ratio": round(vol_ratio, 2),
+                "momentum": round(momentum, 3), "ai_prob": round(ai_prob * 100, 1),
                 "signal": signal, "is_moon": is_moon,
                 "features": features, "atr": atr,
             })
@@ -620,7 +593,7 @@ def scan_symbols():
                 if mfi <= MFI_THRESH:         reason = f"MFI منخفض ({mfi:.0f})"
                 elif vol_ratio <= VOL_MULT:   reason = f"حجم ضعيف (×{vol_ratio:.1f})"
                 elif ai_prob < MIN_AI_PROB:   reason = f"AI منخفض ({ai_prob*100:.0f}%)"
-                else:                          reason = "صفقات مكتملة أو رصيد"
+                else:                          reason = "صفقات مكتملة / رصيد"
                 add_scan_result(sym, "fail", reason, ai_prob, price)
 
         except Exception as e:
@@ -636,7 +609,7 @@ def scan_symbols():
         _state["scan_cycle"]  += 1
 
 # ════════════════════════════════════════════════════════════
-#  خيط البوت — يعمل 24/7 بدون session_state
+#  خيط البوت — 24/7
 # ════════════════════════════════════════════════════════════
 def bot_loop():
     add_log("⚡ البوت يعمل 24/7 — جاري تحميل العملات...", "info")
@@ -650,7 +623,6 @@ def bot_loop():
         try:
             manage_open_trades()
             scan_symbols()
-            # تحديث قائمة العملات كل ساعة تقريباً
             with _lock:
                 cycle = _state["scan_cycle"]
             if cycle % 60 == 0 and cycle > 0:
@@ -663,9 +635,6 @@ def bot_loop():
 
     add_log("■ توقف البوت.", "warn")
 
-# ════════════════════════════════════════════════════════════
-#  تشغيل/إيقاف
-# ════════════════════════════════════════════════════════════
 def start_bot(budget):
     if _state["running"]: return
     _stop_event.clear()
@@ -684,9 +653,9 @@ def start_bot(budget):
         _state["scan_list"]       = []
         _state["all_symbols"]     = []
         _state["stats"] = {
-            "win":0,"loss":0,"pnl_today":0.0,"pnl_total":0.0,
-            "total_fees":0.0,"best_trade":0.0,"worst_trade":0.0,
-            "moon_shots":0,"total_scanned":0,
+            "win": 0, "loss": 0, "pnl_today": 0.0, "pnl_total": 0.0,
+            "total_fees": 0.0, "best_trade": 0.0, "worst_trade": 0.0,
+            "moon_shots": 0, "total_scanned": 0,
         }
     t = threading.Thread(target=bot_loop, daemon=True)
     t.start()
@@ -696,23 +665,7 @@ def stop_bot():
     with _lock:
         _state["running"] = False
 
-def do_withdraw():
-    with _lock:
-        bal  = _state["balance"]
-        init = _state["initial_capital"]
-        if bal <= init: return
-        profit = bal - init
-        _state["withdrawn"] += profit
-        _state["balance"]    = init
-        _state["withdraw_ready"] = False
-    add_log(f"💸 تم سحب ${profit:.4f} — الرصيد المتداول: ${init:.2f}", "withdraw")
-    add_alert(f"✅ تم سحب: ${profit:.4f}")
-
-# ════════════════════════════════════════════════════════════
-#  قراءة الحالة للعرض (آمنة)
-# ════════════════════════════════════════════════════════════
 def snap():
-    """لقطة آمنة من الحالة للعرض في الواجهة"""
     with _lock:
         import copy
         return copy.deepcopy(_state)
@@ -720,7 +673,6 @@ def snap():
 # ════════════════════════════════════════════════════════════
 #  الشريط الجانبي
 # ════════════════════════════════════════════════════════════
-# حقل الميزانية في session_state فقط (للواجهة)
 if "budget_ui" not in st.session_state:
     st.session_state.budget_ui = 20.0
 
@@ -748,14 +700,12 @@ with st.sidebar:
     with c1:
         st.markdown('<div class="sb">', unsafe_allow_html=True)
         if st.button("▶ تشغيل", use_container_width=True, disabled=running):
-            start_bot(budget)
-            st.rerun()
+            start_bot(budget); st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with c2:
         st.markdown('<div class="xb">', unsafe_allow_html=True)
         if st.button("■ إيقاف", use_container_width=True, disabled=not running):
-            stop_bot()
-            st.rerun()
+            stop_bot(); st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
     s = snap()
@@ -769,9 +719,9 @@ with st.sidebar:
     bal  = s["balance"]
     init = s["initial_capital"]
     wdrn = s["withdrawn"]
-    pct  = (bal-init)/init*100 if init > 0 else 0
+    pct  = (bal - init) / init * 100 if init > 0 else 0
     col  = "#00ff9d" if bal >= init else "#ff3860"
-    prog = min((bal+wdrn-init)/init*100, 100) if init > 0 else 0
+    prog = min((bal + wdrn - init) / init * 100, 100) if init > 0 else 0
 
     st.markdown(
         f'<div class="ml">الرصيد المتداول</div>'
@@ -804,7 +754,7 @@ with st.sidebar:
         st.rerun()
 
 # ════════════════════════════════════════════════════════════
-#  لوحة التحكم الرئيسية
+#  لوحة التحكم
 # ════════════════════════════════════════════════════════════
 s = snap()
 
@@ -812,21 +762,17 @@ st.markdown(
     '<h1 style="font-family:Cairo,sans-serif;font-size:24px;font-weight:900;'
     'color:#00c8ff;margin:0 0 2px;">🚀 مركز التحكم — بوت المضاربة v3.1</h1>'
     '<div style="font-size:11px;color:#3a6a8a;margin-bottom:14px;">'
-    '⚡ إصلاح threading | فحص شامل | Compound تلقائي | 24/7</div>',
+    '⚡ فحص شامل | Compound تلقائي | وضع القمر 🌙 | 24/7</div>',
     unsafe_allow_html=True)
 
-# تنبيه المضاعفة
 if s["withdraw_ready"]:
-    bal2  = s["balance"]
-    init2 = s["initial_capital"]
-    prof2 = bal2 - init2
+    b2 = s["balance"]; i2 = s["initial_capital"]; p2 = b2 - i2
     st.markdown(
         f'<div class="withdraw-banner">'
         f'<div style="font-size:16px;font-weight:900;color:#ffd600;">🎉 رأس المال تضاعف!</div>'
-        f'<div style="font-size:13px;margin-top:6px;">البداية: ${init2:.2f} | الرصيد: ${bal2:.2f} | الربح: ${prof2:.2f}</div>'
+        f'<div style="font-size:13px;margin-top:6px;">البداية: ${i2:.2f} | الرصيد: ${b2:.2f} | الربح: ${p2:.2f}</div>'
         f'</div>', unsafe_allow_html=True)
 
-# تنبيهات
 for a in list(s["alerts"])[:2]:
     st.markdown(
         f'<div style="background:#002a1a;border:1px solid #00ff9d;border-radius:8px;'
@@ -836,7 +782,7 @@ for a in list(s["alerts"])[:2]:
 # المقاييس
 st2   = s["stats"]
 total = st2["win"] + st2["loss"]
-wr    = st2["win"]/total*100 if total > 0 else 0
+wr    = st2["win"] / total * 100 if total > 0 else 0
 
 def mc(col, label, val, sub="", css=""):
     with col:
@@ -846,26 +792,24 @@ def mc(col, label, val, sub="", css=""):
             unsafe_allow_html=True)
 
 c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
-mc(c1,"ربح اليوم",f'{st2["pnl_today"]:+.3f}$',"صافٍ","g" if st2["pnl_today"]>=0 else "r")
-mc(c2,"الربح الكلي",f'{st2["pnl_total"]:+.3f}$',"منذ البداية","g" if st2["pnl_total"]>=0 else "r")
-mc(c3,"ربح/خسارة",f'{st2["win"]}/{st2["loss"]}',f'{total} صفقة',"y")
-mc(c4,"نسبة النجاح",f'{wr:.1f}%',"AI فعّال ✓" if s["ai_trained"] else "يتعلم...","g" if wr>=50 else "r")
-mc(c5,"مفتوحة",f'{len(s["open_trades"])}/{MAX_OPEN}',"حالياً","o")
-mc(c6,"🌙 القمر",f'{st2["moon_shots"]}',"صفقات كبيرة","p")
-mc(c7,"مفحوصة",f'{st2["total_scanned"]:,}',"إجمالي","")
+mc(c1,"ربح اليوم",    f'{st2["pnl_today"]:+.3f}$', "صافٍ",          "g" if st2["pnl_today"]>=0 else "r")
+mc(c2,"الربح الكلي",  f'{st2["pnl_total"]:+.3f}$', "منذ البداية",   "g" if st2["pnl_total"]>=0 else "r")
+mc(c3,"ربح/خسارة",    f'{st2["win"]}/{st2["loss"]}',f'{total} صفقة', "y")
+mc(c4,"نسبة النجاح",  f'{wr:.1f}%',  "AI فعّال ✓" if s["ai_trained"] else "يتعلم...", "g" if wr>=50 else "r")
+mc(c5,"مفتوحة",       f'{len(s["open_trades"])}/{MAX_OPEN}', "حالياً","o")
+mc(c6,"🌙 القمر",     f'{st2["moon_shots"]}',        "صفقات كبيرة",  "p")
+mc(c7,"مفحوصة",       f'{st2["total_scanned"]:,}',   "إجمالي",        "")
 
 # الفحص المباشر
 st.markdown('<div class="sh">🔍 الفحص المباشر</div>', unsafe_allow_html=True)
-cur = s["current_scan"]
-cyc = s["scan_cycle"]
-ca, cb = st.columns([3,1])
+cur = s["current_scan"]; cyc = s["scan_cycle"]
+ca, cb = st.columns([3, 1])
 with ca:
     if cur:
         st.markdown(
             f'<div class="sc a"><div><span class="sym">⟳ {cur}</span>'
             f'<div class="rsn">جارٍ التحليل...</div></div>'
-            f'<span class="badge b-scan">يفحص</span></div>',
-            unsafe_allow_html=True)
+            f'<span class="badge b-scan">يفحص</span></div>', unsafe_allow_html=True)
     else:
         msg = "في انتظار الدورة التالية..." if s["running"] else "شغّل البوت للبدء"
         st.markdown(f'<div class="sc" style="justify-content:center;color:#3a6a8a;">{msg}</div>',
@@ -882,7 +826,7 @@ for r in list(s["scan_results"])[:10]:
     cc   = "moon" if is_m else ("p" if r["status"]=="pass" else "f")
     bc   = "b-moon" if is_m else ("b-pass" if r["status"]=="pass" else "b-fail")
     bt   = "🌙 قمر" if is_m else ("✓ دخلنا" if r["status"]=="pass" else "✗ رُفض")
-    bw   = int(r["ai_prob"]*55)
+    bw   = int(r["ai_prob"] * 55)
     st.markdown(
         f'<div class="sc {cc}">'
         f'<div style="flex:1;"><span class="sym">{r["symbol"]}</span>'
@@ -899,17 +843,14 @@ st.markdown('<div class="sh">🔴 الصفقات المفتوحة</div>', unsafe
 if s["open_trades"]:
     rows = []
     for sym, t in s["open_trades"].items():
-        tk  = fetch_ticker(sym)
+        tk    = fetch_ticker(sym)
         cur_p = tk["last"] if tk else t["entry_price"]
-        net = ((cur_p-t["entry_price"])*t["qty"] - t["fee_in"] - t["qty"]*cur_p*COMMISSION)
-        pnl = net/t["alloc"]*100
+        net   = ((cur_p - t["entry_price"]) * t["qty"] - t["fee_in"] - t["qty"] * cur_p * COMMISSION)
+        pnl   = net / t["alloc"] * 100
         rows.append({
-            "العملة":     sym,
-            "النوع":      "🌙" if t["is_moon"] else "⚡",
-            "الدخول $":  f'{t["entry_price"]:.8f}',
-            "الحالي $":  f'{cur_p:.8f}',
-            "أعلى ربح":  f'{t["peak_gain"]:+.2f}%',
-            "وقف متحرك": f'{t["trail_sl"]:.8f}',
+            "العملة":    sym, "النوع": "🌙" if t["is_moon"] else "⚡",
+            "الدخول $":  f'{t["entry_price"]:.8f}', "الحالي $": f'{cur_p:.8f}',
+            "أعلى ربح":  f'{t["peak_gain"]:+.2f}%', "وقف متحرك": f'{t["trail_sl"]:.8f}',
             "PnL %":     f'{pnl:+.3f}%',
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -920,10 +861,10 @@ else:
 # أفضل الإشارات
 st.markdown('<div class="sh">📡 أعلى إشارات AI</div>', unsafe_allow_html=True)
 if s["scan_list"]:
-    rows = [{"العملة":x["symbol"],"السعر $":f'{x["price"]:.8f}',
-             "MFI":x["mfi"],"حجم ×":f'×{x["vol_ratio"]}',
-             "زخم":f'{x["momentum"]:+.3f}%',
-             "AI %":f'{x["ai_prob"]}%',"الإشارة":x["signal"]}
+    rows = [{"العملة": x["symbol"], "السعر $": f'{x["price"]:.8f}',
+             "MFI": x["mfi"], "حجم ×": f'×{x["vol_ratio"]}',
+             "زخم": f'{x["momentum"]:+.3f}%',
+             "AI %": f'{x["ai_prob"]}%', "الإشارة": x["signal"]}
             for x in s["scan_list"][:10]]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
@@ -932,34 +873,48 @@ st.markdown('<div class="sh">📋 سجل الصفقات</div>', unsafe_allow_htm
 if s["trades"]:
     rows = []
     for t in reversed(s["trades"][-60:]):
-        pnl = t.get("pnl_pct",0) or 0
-        net = t.get("pnl_net",0) or 0
+        pnl = t.get("pnl_pct", 0) or 0
+        net = t.get("pnl_net", 0) or 0
         rows.append({
-            "العملة":   t["symbol"],
-            "النوع":    "🌙" if t.get("is_moon") else "⚡",
-            "الدخول":  t["entry_time"],
-            "دخول $":  f'{t["entry_price"]:.8f}',
-            "خروج $":  f'{t["exit_price"]:.8f}' if t["exit_price"] else "—",
-            "PnL %":   f'{pnl:+.3f}%',
-            "صافٍ $":  f'{net:+.6f}',
-            "الحالة":   "🟢 ربح" if t["status"]=="WIN" else "🔴 خسارة",
+            "العملة":  t["symbol"], "النوع": "🌙" if t.get("is_moon") else "⚡",
+            "الدخول": t["entry_time"], "دخول $": f'{t["entry_price"]:.8f}',
+            "خروج $": f'{t["exit_price"]:.8f}' if t["exit_price"] else "—",
+            "PnL %":  f'{pnl:+.3f}%', "صافٍ $": f'{net:+.6f}',
+            "الحالة":  "🟢 ربح" if t["status"] == "WIN" else "🔴 خسارة",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    a1,a2,a3,a4 = st.columns(4)
+    for col, label, val, css in [
+        (a1, "أفضل صفقة",      f'{st2["best_trade"]:+.2f}%',  "g"),
+        (a2, "أسوأ صفقة",      f'{st2["worst_trade"]:+.2f}%', "r"),
+        (a3, "🌙 صفقات القمر", str(st2["moon_shots"]),         "p"),
+        (a4, "إجمالي العمولات",f'${st2["total_fees"]:.4f}',   "r"),
+    ]:
+        with col:
+            st.markdown(
+                f'<div class="mc {css}"><div class="ml">{label}</div>'
+                f'<div class="mv" style="font-size:18px;">{val}</div></div>',
+                unsafe_allow_html=True)
+
+if s["compound_log"]:
+    st.markdown('<div class="sh">💰 سجل المضاعفة</div>', unsafe_allow_html=True)
+    st.dataframe(pd.DataFrame(s["compound_log"]), use_container_width=True, hide_index=True)
 
 # سجل الأحداث
 st.markdown('<div class="sh">📟 سجل الأحداث</div>', unsafe_allow_html=True)
 filt = st.selectbox("عرض:",
-    ["الكل","الصفقات","نتائج الفحص","التحذيرات","القمر 🌙"],
+    ["الكل", "الصفقات", "نتائج الفحص", "التحذيرات", "القمر 🌙"],
     label_visibility="collapsed")
 fmap = {
-    "الكل":        None,
-    "الصفقات":     ["buy","sell","moon","withdraw"],
-    "نتائج الفحص": ["pass","fail","scan"],
-    "التحذيرات":   ["warn"],
-    "القمر 🌙":    ["moon"],
+    "الكل":         None,
+    "الصفقات":      ["buy","sell","moon","withdraw"],
+    "نتائج الفحص":  ["pass","fail","scan"],
+    "التحذيرات":    ["warn"],
+    "القمر 🌙":     ["moon"],
 }
-chosen = fmap[filt]
-logs_all = list(s["logs"])
+chosen    = fmap[filt]
+logs_all  = list(s["logs"])
 logs_show = [l for l in logs_all if chosen is None or l["kind"] in chosen]
 if logs_show:
     html = '<div class="log-box">'
@@ -976,11 +931,11 @@ st.markdown('<div class="sh">🧠 حالة الذكاء الاصطناعي</div>
 a1,a2,a3,a4 = st.columns(4)
 trained = s["ai_trained"]
 n_hist  = len(s["ai_history"])
-for col,label,val,sub,css in [
-    (a1,"الحالة","✓ مُدرَّب" if trained else "⟳ يتعلم","Gradient Boosting","g" if trained else "y"),
-    (a2,"العينات",str(n_hist),f"تقدم: {min(n_hist/20*100,100):.0f}%",""),
-    (a3,"المؤشرات","7","MFI،RSI،EMA،ATR،حجم،زخم،اتجاه",""),
-    (a4,"عتبة القمر 🌙","82%","لا سقف للربح","p"),
+for col, label, val, sub, css in [
+    (a1, "الحالة",     "✓ مُدرَّب" if trained else "⟳ يتعلم", "Gradient Boosting", "g" if trained else "y"),
+    (a2, "العينات",    str(n_hist), f"تقدم: {min(n_hist/20*100,100):.0f}%", ""),
+    (a3, "المؤشرات",   "7", "MFI،RSI،EMA،ATR،حجم،زخم،اتجاه", ""),
+    (a4, "عتبة القمر 🌙","82%", "لا سقف للربح", "p"),
 ]:
     with col:
         st.markdown(
@@ -995,7 +950,6 @@ st.markdown(
     '⚡ بوت المضاربة v3.1 — وضع التداول الوهمي — ليس نصيحة مالية ⚡</div>',
     unsafe_allow_html=True)
 
-# تحديث تلقائي
 if _state["running"]:
     time.sleep(8)
     st.rerun()
